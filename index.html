@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mandala Geometry Lab</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: #0a0a0a;
+        }
+
+        nav {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 1000;
+            display: flex;
+            gap: 5px;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 8px;
+            border-radius: 30px;
+            /*border: 1px solid rgba(255, 255, 255, 0.1);*/
+            backdrop-filter: blur(10px);
+        }
+
+        nav img {
+            height: 20px;
+            filter: invert(1);
+        }
+
+        .nav-btn {
+            color: white;
+            text-decoration: none;
+            font-family: 'Inter', sans-serif;
+            font-size: 14px;
+            padding: 10px 15px;
+            border-radius: 20px;
+            transition: all 0.2s ease;
+        }
+
+        .nav-btn:hover {
+            background: rgba(255, 255, 255, 0.15);
+            /*transform: translateY(-2px);*/
+        }
+    </style>
+</head>
+
+<body>
+    <nav>
+        <a href="index.html" class="nav-btn"><img src="materials/square.png"></a>
+        <a href="gallery.html" class="nav-btn"><img src="materials/grid.png"></a>
+    </nav>
+
+    <div id="connectivity-warning" style="
+        display: none;
+        position: fixed;
+        top: 80px;
+        left: 50%;
+        transform: translateX(-50%);
+        color: white;
+        padding: 5px;
+        border-radius: 8px;
+        font-family: sans-serif;
+        z-index: 2000;
+        pointer-events: none;
+    ">
+        Disconnected parts detected! (Not 3D printable)
+    </div>
+
+    <div id="dimensions-label" style="
+        position: absolute; 
+        bottom: 20px; 
+        left: 20px; 
+        color: white; 
+        font-family: monospace; 
+        background: rgba(0,0,0,0.5); 
+        padding: 10px; 
+        pointer-events: none; 
+        border-left: 3px solid #b49e68;">
+        Width: 0mm<br>
+        Depth: 0mm<br>
+        Height: 0mm
+    </div>
+
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://esm.sh/three",
+          "three-mesh-bvh": "https://unpkg.com/three-mesh-bvh@0.7.3/build/index.module.js"
+        }
+      }
+    </script>
+
+    <script type="module" src="editor.js"></script>
+</body>
+
+</html>
