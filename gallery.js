@@ -3,9 +3,10 @@
 // -----------------------------------------------------------
 import * as THREE from "https://esm.sh/three";
 import { OrbitControls } from "https://esm.sh/three/examples/jsm/controls/OrbitControls.js";
+import { FontLoader } from "https://esm.sh/three/examples/jsm/loaders/FontLoader.js";
 
 // My imports
-import { createMandala, PARAMS_CONFIG, randomizeParams } from "./mandala_tree.js";
+import { createMandala, PARAMS_CONFIG, randomizeParams, setFont } from "./mandala_tree.js";
 import * as EVO from "./evolution.js";
 
 // -----------------------------------------------------------
@@ -20,6 +21,42 @@ const scenes = [];
 const nObjects = 20;
 let selectedIndices = new Set();
 let population = [];
+
+// GLOBAL ORBIT
+let globalAlpha = 0;
+let globalBeta = Math.PI / 2;
+let isDraggingGlobal = false;
+let previousMousePosition = { x: 0, y: 0 };
+
+window.addEventListener('mousedown', (e) => {
+    if (e.target.closest('.item')) {
+        isDraggingGlobal = true;
+        previousMousePosition = { x: e.clientX, y: e.clientY };
+    }
+});
+
+window.addEventListener('mousemove', (e) => {
+    if (!isDraggingGlobal) return;
+    const deltaX = e.clientX - previousMousePosition.x;
+    const deltaY = e.clientY - previousMousePosition.y;
+
+    globalAlpha -= deltaX * 0.01;
+    globalBeta = Math.max(0.1, Math.min(Math.PI - 0.1, globalBeta - deltaY * 0.01));
+    previousMousePosition = { x: e.clientX, y: e.clientY };
+});
+
+window.addEventListener('mouseup', () => {
+    isDraggingGlobal = false;
+});
+
+
+const loader = new FontLoader();
+const FONT_URL = 'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/fonts/helvetiker_bold.typeface.json';
+loader.load(FONT_URL, (font) => {
+    console.log("Font Ready");
+    setFont(font);
+    buildGallery();
+});
 
 // -----------------------------------------------------------
 // EVOLUTION BUTTONS
@@ -111,15 +148,15 @@ async function buildGallery() {
         const scene = new THREE.Scene();
         const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 1000);
         camera.up.set(0, 0, 1);
-        camera.position.set(0, -50, 15);
-        camera.lookAt(0, 0, 8);
+        // camera.position.set(0, -50, 15);
+        // camera.lookAt(0, 0, 8);
 
-        // ORBIT CONTROLS SETUP
-        const controls = new OrbitControls(camera, element);
-        controls.target.set(0, 0, 10);
-        controls.enablePan = false;
-        controls.enableZoom = false;
-        controls.update();
+        // // ORBIT CONTROLS SETUP
+        // const controls = new OrbitControls(camera, element);
+        // controls.target.set(0, 0, 10);
+        // controls.enablePan = false;
+        // controls.enableZoom = false;
+        // controls.update();
 
         const mesh = createMandala(params, true);
         scene.add(mesh);
@@ -135,9 +172,9 @@ async function buildGallery() {
         let cameraZ = Math.abs(maxDim / 2 / Math.tan(fov / 2));
         cameraZ *= 1.5; // Padding
 
-        camera.position.set(0, -cameraZ, center.z);
-        controls.target.set(center.x, center.y, center.z);
-        controls.update();
+        // camera.position.set(0, -cameraZ, center.z);
+        // controls.target.set(center.x, center.y, center.z);
+        // controls.update();
 
         // LIGHT
         const light = new THREE.DirectionalLight(0xffffff, 1);
@@ -145,7 +182,7 @@ async function buildGallery() {
         scene.add(light);
         scene.add(new THREE.AmbientLight(0xffffff, 0.3));
 
-        scenes.push({ element, scene, camera, mesh, controls });
+        scenes.push({ element, scene, camera, mesh, center, cameraZ });
 
         await new Promise(resolve => requestAnimationFrame(resolve)); // loads objects as they are being created
     }
@@ -185,7 +222,14 @@ function updateAndRender() {
         renderer.setViewport(left, bottom, width, height);
         renderer.setScissor(left, bottom, width, height);
 
-        data.controls.update();
+        const x = data.cameraZ * Math.sin(globalBeta) * Math.sin(globalAlpha);
+        const y = -data.cameraZ * Math.sin(globalBeta) * Math.cos(globalAlpha);
+        const z = data.cameraZ * Math.cos(globalBeta);
+
+        data.camera.position.set(data.center.x + x, data.center.y + y, data.center.z + z);
+        data.camera.lookAt(data.center);
+
+        //data.controls.update();
         data.mesh.rotation.z += 0.003; // Gentle spin
         renderer.render(data.scene, data.camera);
     });
@@ -275,5 +319,5 @@ function saveString(text, filename) {
     URL.revokeObjectURL(link.href); // Clean up memory
 }
 
-buildGallery();
+//buildGallery();
 updateAndRender();

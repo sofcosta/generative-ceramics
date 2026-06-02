@@ -8,9 +8,11 @@ import { OBJExporter } from 'https://esm.sh/three/examples/jsm/exporters/OBJExpo
 import GUI from "https://esm.sh/lil-gui";
 import * as fflate from "https://esm.sh/fflate"; // ZIP
 import { computeBoundsTree, disposeBoundsTree, acceleratedRaycast } from "https://unpkg.com/three-mesh-bvh@0.7.3/build/index.module.js";
+import { FontLoader } from "https://esm.sh/three/examples/jsm/loaders/FontLoader.js";
+import { CSS2DRenderer, CSS2DObject } from "https://esm.sh/three/examples/jsm/renderers/CSS2DRenderer.js";
 
 // My imports
-import { createMandala, randomizeParams, PARAMS_CONFIG } from "./mandala_tree.js";
+import { createMandala, randomizeParams, PARAMS_CONFIG, setFont } from "./mandala_tree.js";
 
 // -----------------------------------------------------------
 // SET UP
@@ -19,6 +21,23 @@ import { createMandala, randomizeParams, PARAMS_CONFIG } from "./mandala_tree.js
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
 THREE.BufferGeometry.prototype.disposeBoundsTree = disposeBoundsTree;
 THREE.Mesh.prototype.raycast = acceleratedRaycast;
+
+// Setup CSS2D Renderer
+const labelRenderer = new CSS2DRenderer();
+labelRenderer.setSize(window.innerWidth, window.innerHeight);
+labelRenderer.domElement.style.position = 'absolute';
+labelRenderer.domElement.style.top = '0px';
+labelRenderer.domElement.style.pointerEvents = 'none'; // So you can still click the 3D scene
+document.body.appendChild(labelRenderer.domElement);
+
+// FONT
+const loader = new FontLoader();
+const FONT_URL = 'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/fonts/helvetiker_bold.typeface.json';
+loader.load(FONT_URL, (font) => {
+    console.log("Font Ready");
+    setFont(font);
+    buildGeometry();
+});
 
 // -----------------------------------------------------------
 // SCENE SETUP
@@ -116,8 +135,10 @@ if (savedData) {
         shapeRadius: 2,      // Outer radius of the tube
         ratio: 1.0,          // X/Y stretch (1.0 is uniform)
         seedShape: 1,
-        withText: false,
-        text: "A"
+        textMode: false,
+        textContent: "CLAY"
+        //withText: false,
+        //text: "A"
     };
 }
 
@@ -152,6 +173,73 @@ function buildGeometry() {
     }
     scene.add(currentMesh);
     //console.log(currentMesh);
+    //updateDimensionLines();
+}
+
+
+let dimensionsGroup = new THREE.Group();
+scene.add(dimensionsGroup);
+
+function updateDimensionLines() {
+    // 1. Clear previous lines
+    dimensionsGroup.clear();
+    if (!currentMesh) return;
+
+    // 2. Compute current object sizing
+    currentMesh.geometry.computeBoundingBox();
+    const box = currentMesh.geometry.boundingBox;
+    const min = box.min;
+    const max = box.max;
+    const size = new THREE.Vector3();
+    box.getSize(size);
+
+    // Subtle technical styling
+    const lineMaterial = new THREE.LineBasicMaterial({
+        color: 0x555555,
+        transparent: true,
+        opacity: 0.9
+    });
+
+    // --- WIDTH DIMENSION LINE (X-Axis) ---
+    const widthPoints = [
+        new THREE.Vector3(min.x, min.y - 5, min.z), // Offset line slightly outside mesh
+        new THREE.Vector3(max.x, min.y - 5, min.z)
+    ];
+    createDimLine(widthPoints, `${size.x.toFixed(1)} cm`, lineMaterial);
+
+    // --- HEIGHT DIMENSION LINE (Z-Axis) ---
+    const heightPoints = [
+        new THREE.Vector3(max.x + 5, min.y, min.z),
+        new THREE.Vector3(max.x + 5, min.y, max.z)
+    ];
+    createDimLine(heightPoints, `${size.z.toFixed(1)} cm`, lineMaterial);
+}
+
+function createDimLine(points, labelText, material) {
+    // 1. Draw the Line
+    const geometry = new THREE.BufferGeometry().setFromPoints(points);
+    const line = new THREE.Line(geometry, material);
+    dimensionsGroup.add(line);
+
+    // 2. Create the HTML Label
+    const textDiv = document.createElement('div');
+    textDiv.className = 'dim-label';
+    textDiv.textContent = labelText;
+    textDiv.style.color = 'white';
+    textDiv.style.fontFamily = 'monospace';
+    textDiv.style.fontSize = '12px';
+    textDiv.style.padding = '2px 5px';
+    textDiv.style.background = 'rgba(0, 0, 0, 0.5)';
+    textDiv.style.borderRadius = '3px';
+    textDiv.style.marginTop = '-1em'; // Center it over the point
+
+    const label = new CSS2DObject(textDiv);
+
+    // Position label at the midpoint of the line
+    const middlePoint = new THREE.Vector3().addVectors(points[0], points[1]).multiplyScalar(0.5);
+    label.position.copy(middlePoint);
+
+    dimensionsGroup.add(label);
 }
 
 // -----------------------------------------------------------
@@ -344,10 +432,10 @@ Object.keys(PARAMS_CONFIG).forEach(key => {
 
     if (config.options) {
         controller = targetFolder.add(params, key, config.options);
-    } else if (config.type === 'boolean') {
-        controller = targetFolder.add(params, key);
-    } else {
+    } else if (typeof params[key] === 'number' && config.min !== undefined) {
         controller = targetFolder.add(params, key, config.min, config.max, config.step || 0.1);
+    } else {
+        controller = targetFolder.add(params, key);
     }
 
     controller.name(label).onChange(buildGeometry);
@@ -461,7 +549,8 @@ function animate() {
     requestAnimationFrame(animate);
     controls.update();
     renderer.render(scene, camera);
+    labelRenderer.render(scene, camera);
 }
 
-buildGeometry();
+//buildGeometry();
 animate();

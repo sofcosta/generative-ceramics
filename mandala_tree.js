@@ -9,24 +9,30 @@ import { FontLoader } from "https://esm.sh/three/examples/jsm/loaders/FontLoader
 // FONT SETUP
 // -----------------------------------------------------------
 let loadedFont = null;
-const loader = new FontLoader();
-// CDN URL
-const FONT_URL = 'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/fonts/helvetiker_bold.typeface.json';
 
-loader.load(FONT_URL,
-    (font) => {
-        console.log("Font loaded successfully!");
-        loadedFont = font;
-        // CRITICAL: Trigger a rebuild once the font is actually here
-        if (typeof buildGeometry === 'function') {
-            buildGeometry();
-        }
-    },
-    undefined, // onProgress
-    (err) => {
-        console.error("Font failed to load:", err);
-    }
-);
+export function setFont(font) {
+    loadedFont = font;
+}
+
+// const loader = new FontLoader();
+// // CDN URL
+// const FONT_URL = 'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/fonts/helvetiker_bold.typeface.json';
+
+// loader.load(FONT_URL,
+//     (font) => {
+//         console.log("Font loaded successfully!");
+//         loadedFont = font;
+//         // CRITICAL: Trigger a rebuild once the font is actually here
+//         if (typeof buildGeometry === 'function') {
+//             buildGeometry();
+//             console.log("Rebuild after font loaded");
+//         }
+//     },
+//     undefined, // onProgress
+//     (err) => {
+//         console.error("Font failed to load:", err);
+//     }
+// );
 
 // -----------------------------------------------------------
 // OBJECT GENERATION
@@ -71,7 +77,7 @@ export function createMandala(params, isGallery = false, planeHeight = 1) {
         };
     }
 
-    function getPointOnPrimitive(type, angle, size, offset = 0) {
+    function getPointOnPrimitive(type, angle, size, offset = 0, shapes) {
         let pts = [];
         const r = size;
 
@@ -105,8 +111,8 @@ export function createMandala(params, isGallery = false, planeHeight = 1) {
                 new THREE.Vector2(r * 1.2, 0),          // Right        
             ];
         }
-        else if (type === 'Letter' && loadedFont) {
-            const shapes = loadedFont.generateShapes(params.text || "A", size * 2, 12);
+        else if (type === 'Letter' && shapes) {
+            //const shapes = loadedFont.generateShapes(char, size * 2, 12);
             const shape = shapes[0];
 
             // Sample the letter into discrete points so we can use Miter logic
@@ -118,7 +124,6 @@ export function createMandala(params, isGallery = false, planeHeight = 1) {
             const center = new THREE.Vector2();
             box.getCenter(center);
             pts.forEach(p => p.sub(center)); // Center the letter
-
             pts.reverse();
 
             // RE-ORDER POINTS
@@ -189,12 +194,27 @@ export function createMandala(params, isGallery = false, planeHeight = 1) {
 
         // Sequence of shapes
         const branchShapes = [];
+        const branchChars = []; // Array to store letters
         const shapeScales = [];
         const shapeRotation = [];
-        for (let i = 0; i < params.shapeCount; i++) {
-            branchShapes.push(primitives[Math.floor(getShapeRand() * primitives.length)]);
+
+        const isTextMode = params.textMode && params.textContent;
+        const effectiveShapeCount = isTextMode ? params.textContent.length : params.shapeCount;
+
+        const shapes = [];
+
+        for (let i = 0; i < effectiveShapeCount; i++) {
             shapeScales.push(0.6 + getShapeRand() * 0.8); //random scale multiplier (between 0.6 and 1.4)
             shapeRotation.push(getShapeRand() * (Math.PI / 2));
+            if (isTextMode && loadedFont) {
+                branchShapes.push('Letter');
+                branchChars.push(params.textContent[i]);
+                shapes.push(loadedFont.generateShapes(branchChars[i], params.shapeRadius * shapeScales[i] * 2, 12));
+            } else {
+                branchShapes.push(primitives[Math.floor(getShapeRand() * primitives.length)]);
+                branchChars.push("A");
+                shapes.push(loadedFont.generateShapes(branchChars[i], params.shapeRadius * shapeScales[i] * 2, 12));
+            }
         }
 
         // Vertex Generation
@@ -203,9 +223,9 @@ export function createMandala(params, isGallery = false, planeHeight = 1) {
             const p = curve.getPointAt(t); // Center point of the tube at this height
 
             // Find which two shapes we are currently morphing between
-            const sectionFloat = t * (params.shapeCount - 1);
+            const sectionFloat = t * (effectiveShapeCount - 1);
             const index1 = Math.floor(sectionFloat);
-            const index2 = Math.min(index1 + 1, params.shapeCount - 1);
+            const index2 = Math.min(index1 + 1, effectiveShapeCount - 1);
             const localT = sectionFloat - index1; // Progress between Shape A and Shape B
 
             const currentRotation = THREE.MathUtils.lerp(
@@ -217,14 +237,17 @@ export function createMandala(params, isGallery = false, planeHeight = 1) {
             const cosR = Math.cos(currentRotation);
             const sinR = Math.sin(currentRotation);
 
+            const char1 = branchChars[index1];
+            const char2 = branchChars[index2];
+
             for (let j = 0; j < radialRes; j++) {
                 const angle = (j / radialRes) * Math.PI * 2;
 
                 // Get coordinates for Outer and Inner walls
-                const p1Outer = getPointOnPrimitive(branchShapes[index1], angle, params.shapeRadius * shapeScales[index1]);
-                const p2Outer = getPointOnPrimitive(branchShapes[index2], angle, params.shapeRadius * shapeScales[index2]);
-                const p1Inner = getPointOnPrimitive(branchShapes[index1], angle, params.shapeRadius * shapeScales[index1], params.wallThickness);
-                const p2Inner = getPointOnPrimitive(branchShapes[index2], angle, params.shapeRadius * shapeScales[index2], params.wallThickness);
+                const p1Outer = getPointOnPrimitive(branchShapes[index1], angle, params.shapeRadius * shapeScales[index1], 0, shapes[index1]);
+                const p2Outer = getPointOnPrimitive(branchShapes[index2], angle, params.shapeRadius * shapeScales[index2], 0, shapes[index2]);
+                const p1Inner = getPointOnPrimitive(branchShapes[index1], angle, params.shapeRadius * shapeScales[index1], params.wallThickness, shapes[index1]);
+                const p2Inner = getPointOnPrimitive(branchShapes[index2], angle, params.shapeRadius * shapeScales[index2], params.wallThickness, shapes[index2]);
 
                 // To have the shapes rotate
                 let lerpedOuterX = THREE.MathUtils.lerp(p1Outer.x, p2Outer.x, localT);
@@ -317,22 +340,27 @@ export function createMandala(params, isGallery = false, planeHeight = 1) {
         case 'Grid':
             //const gridCount = Math.ceil(Math.sqrt(params.count));
             //const gridCount = params.count / 2;
-            const gridCount = params.count;
-            const spacing = params.centerOffset;
-            for (let i = 0; i < gridCount; i++) {
-                for (let j = 0; j < gridCount; j++) {
+            //const gridCount = params.count;
+            const gridCol = Math.max(1, Math.floor(params.count / 2));
+            const gridRow = Math.max(1, Math.floor(params.count / 2) + (params.count % 2));
+            const spacing = params.centerOffset / 2;
+            const angle = params.stepAngle * (Math.PI);
+            for (let i = 0; i < gridCol; i++) {
+                for (let j = 0; j < gridRow; j++) {
 
                     const geo = baseGeo.clone();
                     if (params.reflect && j % 2 == 0) {
                         geo.scale(-1, 1, 1);
                         reverseWindingOrder(geo);
+                        geo.applyMatrix4(new THREE.Matrix4().makeRotationZ(params.stepAngle));
                     }
                     if (params.reflect && i % 2 == 0) {
                         geo.scale(1, -1, 1);
                         reverseWindingOrder(geo);
+                        geo.applyMatrix4(new THREE.Matrix4().makeRotationZ(params.stepAngle));
                     }
-                    const x = (i - (gridCount - 1) / 2) * spacing;
-                    const y = (j - (gridCount - 1) / 2) * spacing;
+                    const x = (i - (gridCol - 1) / 2) * spacing;
+                    const y = (j - (gridRow - 1) / 2) * spacing;
                     geo.applyMatrix4(new THREE.Matrix4().makeTranslation(x, y, 0));
 
                     geometries.push(geo);
@@ -366,18 +394,20 @@ export function createMandala(params, isGallery = false, planeHeight = 1) {
 // -----------------------------------------------------------
 export const PARAMS_CONFIG = {
     distribution: { options: ['Mandala', 'Grid'], folder: 'General', label: 'Organization' },
-    height: { min: 1, max: 20, step: 1, folder: 'General', label: 'Total Height' },
-    count: { min: 1, max: 15, step: 1, folder: 'General', label: 'Radial Count' },
+    height: { min: 1, max: 20, step: 1, folder: 'General', label: 'Height' },
+    count: { min: 1, max: 15, step: 1, folder: 'General', label: 'Count' },
     stepAngle: { min: 0, max: 1, step: 0.1, folder: 'General', label: 'Step Angle' },
     centerOffset: { min: -10, max: 10, step: 1, folder: 'General', label: 'Center Distance' },
-    reflect: { type: 'boolean', folder: 'General', label: 'Mirror Symmetry' },
+    reflect: { type: 'boolean', folder: 'General', label: 'Mirror' },
     wallThickness: { min: 0.3, max: 1.0, step: 0.1, folder: 'General', label: 'Wall Thickness' },
     points: { min: 2, max: 10, step: 1, folder: 'Line Path', label: 'Point Count' },
     inc: { min: 0.1, max: 10, step: 1, folder: 'Line Path', label: 'Line Spread' },
     seed: { min: 1, max: 9999, step: 1, folder: 'Line Path', label: 'Random Seed' },
     shapeCount: { min: 2, max: 10, step: 1, folder: 'Master Shapes', label: 'Shape Count' },
     shapeRadius: { min: 2, max: 5, step: 1, folder: 'Master Shapes', label: 'Shape Radius' },
-    seedShape: { min: 1, max: 9999, step: 1, folder: 'Master Shapes', label: 'Random Seed Shape' }
+    seedShape: { min: 1, max: 9999, step: 1, folder: 'Master Shapes', label: 'Random Seed Shape' },
+    textMode: { type: 'boolean', folder: 'Master Shapes', label: 'Use Letters' },
+    textContent: { type: 'string', folder: 'Master Shapes', label: 'Letters', default: 'CLAY' },
 };
 
 // -----------------------------------------------------------
@@ -385,8 +415,12 @@ export const PARAMS_CONFIG = {
 // -----------------------------------------------------------
 export function randomizeParams(params) {
     Object.keys(PARAMS_CONFIG).forEach(key => {
+        if (key === "textContent") return; // don't change textContent
+
         const param_config = PARAMS_CONFIG[key];
-        if (Array.isArray(param_config.options)) {
+        if (param_config.type === 'text') {
+            params[key] = "CLAY";
+        } else if (Array.isArray(param_config.options)) {
             params[key] = param_config.options[Math.floor(Math.random() * param_config.options.length)];
         } else if (param_config.type === 'boolean') {
             params[key] = Math.random() > 0.5;
@@ -399,6 +433,8 @@ export function randomizeParams(params) {
             params[key] = val;
         }
     });
+    //params["textContent"] = "CLAY";
+    console.log(params);
     return params;
 }
 
