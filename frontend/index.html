@@ -5,6 +5,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Mandala Geometry Lab</title>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://esm.sh/three",
+          "three-mesh-bvh": "https://esm.sh/three-mesh-bvh@0.7.3"
+        }
+      }
+    </script>
     <style>
         body {
             margin: 0;
@@ -46,13 +54,6 @@
             background: rgba(255, 255, 255, 0.15);
             /*transform: translateY(-2px);*/
         }
-
-        .dim-label {
-            user-select: none;
-            pointer-events: none;
-            font-weight: bold;
-            /*border: 1px solid rgba(255, 255, 255, 0.2);*/
-        }
     </style>
 </head>
 
@@ -61,22 +62,6 @@
         <a href="index.html" class="nav-btn"><img src="materials/square.png"></a>
         <a href="gallery.html" class="nav-btn"><img src="materials/grid.png"></a>
     </nav>
-
-    <div id="connectivity-warning" style="
-        display: none;
-        position: fixed;
-        top: 80px;
-        left: 50%;
-        transform: translateX(-50%);
-        color: white;
-        padding: 5px;
-        border-radius: 8px;
-        font-family: sans-serif;
-        z-index: 2000;
-        pointer-events: none;
-    ">
-        Disconnected parts detected! (Not 3D printable)
-    </div>
 
     <div id="dimensions-label" style="
         position: absolute; 
@@ -93,14 +78,26 @@
         Height: 0mm
     </div>
 
-    <script type="importmap">
-      {
-        "imports": {
-          "three": "https://esm.sh/three",
-          "three-mesh-bvh": "https://unpkg.com/three-mesh-bvh@0.7.3/build/index.module.js"
-        }
-      }
-    </script>
+    <div id="fitness-panel" style="
+        position: absolute; 
+        top: 20px; 
+        left: 20px; 
+        width: 280px;
+        color: white; 
+        font-family: 'Inter', sans-serif; 
+        background: rgba(0,0,0,0.8); 
+        padding: 15px; 
+        border-radius: 8px;
+        border-left: 5px solid #666;
+        pointer-events: none;
+        display: none; 
+        backdrop-filter: blur(10px);
+        z-index: 3000;">
+        <h3 style="margin: 0 0 10px 0; font-size: 14px; text-transform: uppercase; letter-spacing: 1px;">Fitness Report
+        </h3>
+        <div id="fitness-content" style="font-size: 13px; line-height: 1.4;">
+        </div>
+    </div>
 
     <script type="module" src="editor.js"></script>
 </body>

@@ -14,32 +14,19 @@ export function setFont(font) {
     loadedFont = font;
 }
 
-// const loader = new FontLoader();
-// // CDN URL
-// const FONT_URL = 'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/fonts/helvetiker_bold.typeface.json';
-
-// loader.load(FONT_URL,
-//     (font) => {
-//         console.log("Font loaded successfully!");
-//         loadedFont = font;
-//         // CRITICAL: Trigger a rebuild once the font is actually here
-//         if (typeof buildGeometry === 'function') {
-//             buildGeometry();
-//             console.log("Rebuild after font loaded");
-//         }
-//     },
-//     undefined, // onProgress
-//     (err) => {
-//         console.error("Font failed to load:", err);
-//     }
-// );
 
 // -----------------------------------------------------------
 // OBJECT GENERATION
 // -----------------------------------------------------------
-export function createMandala(params, isGallery = false, planeHeight = 1) {
+export function createMandala(params, isGallery = false) {
+    // 1. START OVERALL TIMER
+    const totalStart = performance.now();
+
+    // Object to store individual breakdown durations
+    const metrics = {};
+
+
     const primitives = ['Letter', 'Square', 'Circle', 'Triangle', 'Irregular'];
-    //const primitives = ['Square', 'Circle', 'Triangle'];
 
     function createGenerator(seed) {
         return function () {
@@ -51,26 +38,16 @@ export function createMandala(params, isGallery = false, planeHeight = 1) {
     }
 
     function getMiterOffset(points, index, offset) {
-        const p2 = points[index]; // Current vertex
-        const p1 = points[(index - 1 + points.length) % points.length]; // Previous
-        const p3 = points[(index + 1) % points.length]; // Next
-
-        // Get directions of the two edges meeting at this vertex
+        const p2 = points[index];
+        const p1 = points[(index - 1 + points.length) % points.length];
+        const p3 = points[(index + 1) % points.length];
         const v1 = new THREE.Vector2().subVectors(p2, p1).normalize();
         const v2 = new THREE.Vector2().subVectors(p3, p2).normalize();
-
-        // Get the normals (perpendiculars)
         const n1 = new THREE.Vector2(-v1.y, v1.x);
         const n2 = new THREE.Vector2(-v2.y, v2.x);
-
-        // Get the miter vector (bisector of the two normals)
         const miter = new THREE.Vector2().addVectors(n1, n2).normalize();
-
-        // Calculate the miter length (how far to push the corner)
-        // The sharper the corner, the longer the miter length
         const dot = miter.dot(n1);
         const length = offset / Math.max(dot, 0.1);
-
         return {
             x: p2.x + miter.x * length,
             y: p2.y + miter.y * length
@@ -84,49 +61,45 @@ export function createMandala(params, isGallery = false, planeHeight = 1) {
         if (type === 'Circle') {
             const startOffset = Math.PI / 2;
             const invAngle = angle + startOffset;
-            return { x: Math.cos(invAngle) * (r + offset), y: Math.sin(invAngle) * (r + offset) };
+            return { x: Math.cos(invAngle) * (r - offset), y: Math.sin(invAngle) * (r - offset) };
         }
         else if (type === 'Square') {
             pts = [
-                new THREE.Vector2(0, r),    // Top Center
-                new THREE.Vector2(-r, r),   // Top Left
-                new THREE.Vector2(-r, -r),  // Bottom Left
-                new THREE.Vector2(r, -r),   // Bottom Right
-                new THREE.Vector2(r, r),    // Top Right
+                new THREE.Vector2(0, r),
+                new THREE.Vector2(-r, r),
+                new THREE.Vector2(-r, -r),
+                new THREE.Vector2(r, -r),
+                new THREE.Vector2(r, r),
             ];
         }
         else if (type === 'Triangle') {
             const tr = r * 1.5;
             pts = [
-                new THREE.Vector2(0, tr),                            // Top
-                new THREE.Vector2(tr * Math.cos(7 * Math.PI / 6), tr * Math.sin(7 * Math.PI / 6)), // Bottom Left
-                new THREE.Vector2(tr * Math.cos(-Math.PI / 6), tr * Math.sin(-Math.PI / 6))  // Bottom Right
+                new THREE.Vector2(0, tr),
+                new THREE.Vector2(tr * Math.cos(7 * Math.PI / 6), tr * Math.sin(7 * Math.PI / 6)),
+                new THREE.Vector2(tr * Math.cos(-Math.PI / 6), tr * Math.sin(-Math.PI / 6))
             ];
         }
         else if (type === 'Irregular') {
             pts = [
-                new THREE.Vector2(0, r * 1.5),          // Top
-                new THREE.Vector2(-r * 0.8, -r * 0.2),  // Left
-                new THREE.Vector2(0, -r * 0.5),         // Bottom
-                new THREE.Vector2(r * 1.2, 0),          // Right        
+                new THREE.Vector2(0, r * 1.5),
+                new THREE.Vector2(-r * 0.8, -r * 0.2),
+                new THREE.Vector2(0, -r * 0.5),
+                new THREE.Vector2(r * 1.2, 0),
             ];
         }
         else if (type === 'Letter' && shapes) {
-            //const shapes = loadedFont.generateShapes(char, size * 2, 12);
+            //const shapes = loadedFont.generateShapes(params.text || "A", size * 2, 12);
             const shape = shapes[0];
-
-            // Sample the letter into discrete points so we can use Miter logic
-            //pts = shape.getPoints(64);
-            pts = shape.getSpacedPoints(64);
+            //pts = shape.getSpacedPoints(64);
+            pts = shape.getPoints();
             pts.pop();
-
             const box = new THREE.Box2().setFromPoints(pts);
             const center = new THREE.Vector2();
             box.getCenter(center);
-            pts.forEach(p => p.sub(center)); // Center the letter
+            pts.forEach(p => p.sub(center));
             pts.reverse();
 
-            // RE-ORDER POINTS
             let closestIdx = 0;
             let minYDist = Infinity;
             pts.forEach((p, index) => {
@@ -136,38 +109,39 @@ export function createMandala(params, isGallery = false, planeHeight = 1) {
                     closestIdx = index;
                 }
             });
-
-            // Shift the array so the top point is at index 0
             pts = [...pts.slice(closestIdx), ...pts.slice(0, closestIdx)];
         }
 
         if (pts.length === 0) return { x: 0, y: 0 };
 
-        // Map Angle to the Points
-        // We map 0-2PI to the perimeter of the point array
         const normalizedAngle = ((angle % (Math.PI * 2)) + (Math.PI * 2)) % (Math.PI * 2);
         const t = normalizedAngle / (Math.PI * 2);
-
         const segmentFloat = t * pts.length;
         const i = Math.floor(segmentFloat) % pts.length;
         const localT = segmentFloat - Math.floor(segmentFloat);
 
-        // Apply Miter Offset to the relevant vertices
         const pStart = getMiterOffset(pts, i, offset);
         const pEnd = getMiterOffset(pts, (i + 1) % pts.length, offset);
 
-        // Interpolate between the offset corners
         return {
             x: pStart.x + (pEnd.x - pStart.x) * localT,
             y: pStart.y + (pEnd.y - pStart.y) * localT
         };
     }
 
-    function createHollowMorphedLine() {
+    function createHollowMorphedLine(lengthMultiplier = 1.0) {
+        // Master timer for this individual line execution
+        const moduleStart = performance.now();
+        const subMetrics = {};
+
+        // ---------------------------------------------------
+        // PHASE 1: PATH & CURVE COMPUTATION
+        // ---------------------------------------------------
+        const tPathStart = performance.now();
+
         const getShapeRand = createGenerator(params.seedShape);
         const getPathRand = createGenerator(params.seed);
 
-        // Generate a random path
         let pathPoints = [];
         let current = new THREE.Vector3(
             (getPathRand() - 0.5) * params.inc,
@@ -185,14 +159,21 @@ export function createMandala(params, isGallery = false, planeHeight = 1) {
         }
 
         const curve = new THREE.CatmullRomCurve3(pathPoints);
-        //const segments = 80;   // Vertical resolution
+
+        subMetrics["1. Path Generation"] = (performance.now() - tPathStart).toFixed(2) + " ms";
+
+        // ---------------------------------------------------
+        // PHASE 2: SHAPE CONFIGURATION & FONT GENERATION
+        // ---------------------------------------------------
+        const tShapeSetupStart = performance.now();
+
         const segments = isGallery ? 40 : 80;
-        //const radialRes = 128;  // Resolution of the shape circle
+        const actualSegments = Math.max(1, Math.floor(segments * lengthMultiplier));
+
         const radialRes = isGallery ? 16 : 64;
         const vertices = [];
         const indices = [];
 
-        // Sequence of shapes
         const branchShapes = [];
         const branchChars = []; // Array to store letters
         const shapeScales = [];
@@ -216,17 +197,22 @@ export function createMandala(params, isGallery = false, planeHeight = 1) {
                 shapes.push(loadedFont.generateShapes(branchChars[i], params.shapeRadius * shapeScales[i] * 2, 12));
             }
         }
+        subMetrics["2. Base Shape Generation"] = (performance.now() - tShapeSetupStart).toFixed(2) + " ms";
 
-        // Vertex Generation
-        for (let i = 0; i <= segments; i++) {
-            const t = i / segments;        // Progress (0.0 to 1.0)
-            const p = curve.getPointAt(t); // Center point of the tube at this height
+        // ---------------------------------------------------
+        // PHASE 3: THE MAIN VERTEX GEN LOOP (The likely bottleneck)
+        // ---------------------------------------------------
+        const tVertexLoopStart = performance.now();
 
-            // Find which two shapes we are currently morphing between
+        // ---> O ciclo agora só vai até aos 'actualSegments' <---
+        for (let i = 0; i <= actualSegments; i++) {
+            const t = i / segments; // IMPORTANT: Continua a dividir pelo total para manter o morph coerente
+            const p = curve.getPointAt(t);
+
             const sectionFloat = t * (effectiveShapeCount - 1);
             const index1 = Math.floor(sectionFloat);
             const index2 = Math.min(index1 + 1, effectiveShapeCount - 1);
-            const localT = sectionFloat - index1; // Progress between Shape A and Shape B
+            const localT = sectionFloat - index1;
 
             const currentRotation = THREE.MathUtils.lerp(
                 shapeRotation[index1],
@@ -237,40 +223,37 @@ export function createMandala(params, isGallery = false, planeHeight = 1) {
             const cosR = Math.cos(currentRotation);
             const sinR = Math.sin(currentRotation);
 
-            const char1 = branchChars[index1];
-            const char2 = branchChars[index2];
-
             for (let j = 0; j < radialRes; j++) {
                 const angle = (j / radialRes) * Math.PI * 2;
 
-                // Get coordinates for Outer and Inner walls
                 const p1Outer = getPointOnPrimitive(branchShapes[index1], angle, params.shapeRadius * shapeScales[index1], 0, shapes[index1]);
                 const p2Outer = getPointOnPrimitive(branchShapes[index2], angle, params.shapeRadius * shapeScales[index2], 0, shapes[index2]);
                 const p1Inner = getPointOnPrimitive(branchShapes[index1], angle, params.shapeRadius * shapeScales[index1], params.wallThickness, shapes[index1]);
                 const p2Inner = getPointOnPrimitive(branchShapes[index2], angle, params.shapeRadius * shapeScales[index2], params.wallThickness, shapes[index2]);
 
-                // To have the shapes rotate
                 let lerpedOuterX = THREE.MathUtils.lerp(p1Outer.x, p2Outer.x, localT);
                 let lerpedOuterY = THREE.MathUtils.lerp(p1Outer.y, p2Outer.y, localT);
-
                 const finalOuterX = lerpedOuterX * cosR - lerpedOuterY * sinR;
                 const finalOuterY = lerpedOuterX * sinR + lerpedOuterY * cosR;
-
                 vertices.push(p.x + finalOuterX, p.y + finalOuterY, p.z);
 
                 let lerpedInnerX = THREE.MathUtils.lerp(p1Inner.x, p2Inner.x, localT);
                 let lerpedInnerY = THREE.MathUtils.lerp(p1Inner.y, p2Inner.y, localT);
-
                 const finalInnerX = lerpedInnerX * cosR - lerpedInnerY * sinR;
                 const finalInnerY = lerpedInnerX * sinR + lerpedInnerY * cosR;
-
                 vertices.push(p.x + finalInnerX, p.y + finalInnerY, p.z);
             }
         }
+        subMetrics["3. Vertex + Lerping"] = (performance.now() - tVertexLoopStart).toFixed(2) + " ms";
 
-        // Face Generation (Connecting vertices into triangles)
+        // ---------------------------------------------------
+        // PHASE 4: INDEX BUILDING & BUFFER ASSEMBLY
+        // ---------------------------------------------------
+        const tIndexStart = performance.now();
+
         const rowSize = radialRes * 2;
-        for (let i = 0; i < segments; i++) {
+        // ---> As faces também param no actualSegments <---
+        for (let i = 0; i < actualSegments; i++) {
             for (let j = 0; j < radialRes; j++) {
                 const nextJ = (j + 1) % radialRes;
                 const outCurr = i * rowSize + j * 2, inCurr = outCurr + 1;
@@ -278,30 +261,38 @@ export function createMandala(params, isGallery = false, planeHeight = 1) {
                 const outAbove = (i + 1) * rowSize + j * 2, inAbove = outAbove + 1;
                 const outAboveNext = (i + 1) * rowSize + nextJ * 2, inAboveNext = outAboveNext + 1;
 
-                // Triangles for outer shell
                 indices.push(outCurr, outNext, outAboveNext, outCurr, outAboveNext, outAbove);
-                // Triangles for inner shell (reversed winding so it faces inward)
                 indices.push(inCurr, inAboveNext, inNext, inCurr, inAbove, inAboveNext);
             }
         }
-        // Capping the walls
+
         for (let j = 0; j < radialRes; j++) {
             const nextJ = (j + 1) % radialRes;
             const bOut = j * 2, bIn = j * 2 + 1, bOutN = nextJ * 2, bInN = nextJ * 2 + 1;
-            indices.push(bOut, bIn, bInN, bOut, bInN, bOutN); // Bottom rim
-            const tOffset = segments * rowSize;
+            indices.push(bOut, bIn, bInN, bOut, bInN, bOutN);
+
+            // ---> A tampa do topo fecha no sítio onde a malha foi cortada <---
+            const tOffset = actualSegments * rowSize;
             const tOut = tOffset + j * 2, tIn = tOffset + j * 2 + 1, tOutN = tOffset + nextJ * 2, tInN = tOffset + nextJ * 2 + 1;
-            indices.push(tOut, tInN, tIn, tOut, tOutN, tInN); // Top rim
+            indices.push(tOut, tInN, tIn, tOut, tOutN, tInN);
         }
 
         const geometry = new THREE.BufferGeometry();
         geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
         geometry.setIndex(indices);
-        geometry.computeVertexNormals(); // for lighting/shading
+        geometry.computeVertexNormals();
+
+        subMetrics["4. Face Assembly"] = (performance.now() - tIndexStart).toFixed(2) + " ms";
+
+        // Print out internal line sub-metrics cleanly grouped together
+        const lineTotal = performance.now() - moduleStart;
+        console.groupCollapsed(`Module Generation: ${lineTotal.toFixed(2)}ms`);
+        console.table(subMetrics);
+        console.groupEnd();
+
         return geometry;
     }
 
-    // Mirroring a mesh makes it "inside out"
     function reverseWindingOrder(geometry) {
         const indices = geometry.index.array;
         for (let i = 0; i < indices.length; i += 3) {
@@ -312,22 +303,50 @@ export function createMandala(params, isGallery = false, planeHeight = 1) {
         geometry.computeVertexNormals();
     }
 
-    // MULTIPLY OBJECT AND ORGANIZE
     let geometries = [];
-    const baseGeo = createHollowMorphedLine();
     const distribution = params.distribution || 'Mandala';
+
+    // gerador para garantir que a aletoriedade das alturas é consistente
+    const branchRand = createGenerator(params.variationSeed || 1234);
+
+    // 2. MEASURE BASE GEOMETRY GENERATION
+    const tModuleStart = performance.now();
+
+
+    const fullBaseGeo = createHollowMorphedLine(1.0);
+
+    // Time measurement 
+    metrics["1 Module Generation"] = (performance.now() - tModuleStart).toFixed(2) + " ms";
+
+    // 3. MEASURE THE DISTRIBUTION SYSTEM (Mandala / Grid loops)
+    const tOrganizationStart = performance.now();
+
 
     switch (distribution) {
         case 'Mandala':
-            baseGeo.translate(params.centerOffset, 0, 0);
             const stepAngle = (Math.PI * 2) / params.count;
             for (let i = 0; i < params.count; i++) {
+                // Calcular o tamanho deste braço específico
+                let multiplier = 1.0;
+                if (params.cutVariation > 0) {
+                    // Ex: Se cutVariation for 0.6, o tamanho flutua entre 40% e 100%
+                    multiplier = 1.0 - (branchRand() * params.cutVariation);
+                }
+
                 const angle = i * stepAngle;
-                const geo = baseGeo.clone();
+
+                // chamar createHollowMorphedLine() dentro de um loop, 
+                //torna o sistema muito lento
+                // Se a variação for 0, usamos o CLONE super rápido. Se não, geramos um novo.
+                const geo = (params.cutVariation === 0) ? fullBaseGeo.clone() : createHollowMorphedLine(multiplier);
+
+                geo.translate(params.centerOffset, 0, 0);
                 geo.applyMatrix4(new THREE.Matrix4().makeRotationZ(angle));
                 geometries.push(geo);
+
                 if (params.reflect) {
-                    const reflectedGeo = baseGeo.clone();
+                    const reflectedGeo = (params.cutVariation === 0) ? fullBaseGeo.clone() : createHollowMorphedLine(multiplier);
+                    reflectedGeo.translate(params.centerOffset, 0, 0);
                     reflectedGeo.scale(-1, 1, 1);
                     reverseWindingOrder(reflectedGeo);
                     const mirrorAngle = angle + (stepAngle * params.stepAngle);
@@ -338,26 +357,28 @@ export function createMandala(params, isGallery = false, planeHeight = 1) {
             break;
 
         case 'Grid':
-            //const gridCount = Math.ceil(Math.sqrt(params.count));
-            //const gridCount = params.count / 2;
-            //const gridCount = params.count;
             const gridCol = Math.max(1, Math.floor(params.count / 2));
             const gridRow = Math.max(1, Math.floor(params.count / 2) + (params.count % 2));
             const spacing = params.centerOffset / 2;
             const angle = params.stepAngle * (Math.PI);
             for (let i = 0; i < gridCol; i++) {
                 for (let j = 0; j < gridRow; j++) {
+                    let multiplier = 1.0;
+                    if (params.cutVariation > 0) {
+                        multiplier = 1.0 - (branchRand() * params.cutVariation);
+                    }
 
-                    const geo = baseGeo.clone();
+                    const geo = (params.cutVariation === 0) ? fullBaseGeo.clone() : createHollowMorphedLine(multiplier);
+
                     if (params.reflect && j % 2 == 0) {
                         geo.scale(-1, 1, 1);
                         reverseWindingOrder(geo);
-                        geo.applyMatrix4(new THREE.Matrix4().makeRotationZ(params.stepAngle));
+                        geo.applyMatrix4(new THREE.Matrix4().makeRotationZ(angle));
                     }
                     if (params.reflect && i % 2 == 0) {
                         geo.scale(1, -1, 1);
                         reverseWindingOrder(geo);
-                        geo.applyMatrix4(new THREE.Matrix4().makeRotationZ(params.stepAngle));
+                        geo.applyMatrix4(new THREE.Matrix4().makeRotationZ(angle));
                     }
                     const x = (i - (gridCol - 1) / 2) * spacing;
                     const y = (j - (gridRow - 1) / 2) * spacing;
@@ -369,23 +390,45 @@ export function createMandala(params, isGallery = false, planeHeight = 1) {
             break;
     }
 
-    const merged = mergeGeometries(geometries);
-    geometries.forEach(g => g.dispose()); // Cleanup
-    baseGeo.dispose();
+    metrics["Organization Loops"] = (performance.now() - tOrganizationStart).toFixed(2) + " ms";
 
-    const localPlane = new THREE.Plane(new THREE.Vector3(0, 0, -1), planeHeight * params.height + 0.05);
+    // 4. MEASURE MERGING AND CLEANUP
+    const tMergeStart = performance.now();
+
+    const merged = mergeGeometries(geometries);
+    geometries.forEach(g => g.dispose());
+    fullBaseGeo.dispose(); // Limpa o molde original da memória
+
+    metrics["Merging"] = (performance.now() - tMergeStart).toFixed(2) + " ms";
+
+    // 5. MEASURE FINAL MESH AND MATERIAL COMPILATION
+    const tMaterialStart = performance.now();
 
     const material = new THREE.MeshStandardMaterial({
-        color: 0xffffff,    // 0x8b7668  // 0xe2b49c
+        color: 0xffffff,
         roughness: 1.0,
         metalness: 0.0,
-        flatShading: false,
+        flatShading: true,
         side: THREE.DoubleSide,
-        clippingPlanes: [localPlane]
+        opacity: 0.5,
+        transparent: false
     });
     let mesh = new THREE.Mesh(merged, material);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
+
+    metrics["Material"] = (performance.now() - tMaterialStart).toFixed(2) + " ms";
+
+
+    // 6. STOP OVERALL TIMER & OUTPUT
+    const totalTime = (performance.now() - totalStart).toFixed(2);
+
+    // Print clear analytics to the browser Console
+    console.groupCollapsed(`Render Profiling: ${totalTime}ms (Branches: ${geometries.length})`);
+    console.table(metrics);
+    console.groupEnd();
+
+
     return mesh;
 }
 
@@ -408,6 +451,8 @@ export const PARAMS_CONFIG = {
     seedShape: { min: 1, max: 9999, step: 1, folder: 'Master Shapes', label: 'Random Seed Shape' },
     textMode: { type: 'boolean', folder: 'Master Shapes', label: 'Use Letters' },
     textContent: { type: 'string', folder: 'Master Shapes', label: 'Letters', default: 'CLAY' },
+    cutVariation: { min: 0, max: 0.9, step: 0.05, folder: 'General', label: 'Branch Variation' },
+    variationSeed: { min: 1, max: 9999, step: 1, folder: 'General', label: 'Variation Seed' }
 };
 
 // -----------------------------------------------------------
@@ -433,11 +478,9 @@ export function randomizeParams(params) {
             params[key] = val;
         }
     });
-    //params["textContent"] = "CLAY";
+    //params["cutVariation"] = Math.random() > 0.5 ? 0.0 : Math.random() * 0.8;
+    params["cutVariation"] = 0.0;
+    //params["textMode"] = false;
     console.log(params);
     return params;
 }
-
-//     params.text = "A";
-
-
