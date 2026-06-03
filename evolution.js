@@ -49,5 +49,7 @@ export function genotypeToParams(genes) {
             }
         }
     });
+
+    params["textContent"] = "CLAY";
     return params;
 }
