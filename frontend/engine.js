@@ -105,12 +105,14 @@ export function buildFontShapeData(params) {
         // Three.js generateShapes returns CCW for outer contours.
         // Do NOT reverse, otherwise miter logic will flip direction.
 
-        // Rotate winding so the topmost point comes first (matches original)
-        const topY = box.max.y - centre.y;
-        let bestIdx = 0, bestDist = Infinity;
-        pts.forEach((p, idx) => {
-            const d = Math.hypot(p.x, p.y - topY);
-            if (d < bestDist) { bestDist = d; bestIdx = idx; }
+        // Robust Reordering: Find Top-Most, then Left-Most point
+        let bestIdx = 0, maxY = -Infinity;
+        pts.forEach((p, i) => {
+            if (p.y > maxY + 0.001) {
+                maxY = p.y; bestIdx = i;
+            } else if (Math.abs(p.y - maxY) < 0.001 && p.x < pts[bestIdx].x) {
+                bestIdx = i;
+            }
         });
         pts = [...pts.slice(bestIdx), ...pts.slice(0, bestIdx)];
 
