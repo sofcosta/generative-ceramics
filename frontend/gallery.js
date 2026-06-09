@@ -6,8 +6,9 @@ import { OrbitControls } from "https://esm.sh/three/examples/jsm/controls/OrbitC
 import { FontLoader } from "https://esm.sh/three/examples/jsm/loaders/FontLoader.js";
 
 // My imports
-import { createMandala, PARAMS_CONFIG, randomizeParams, setFont } from "./mandala_tree.js";
+import { buildFontShapeData, PARAMS_CONFIG, randomizeParams, setFont, createMeshFromData, updateMeshFromData } from "./engine.js";
 import * as EVO from "./evolution.js";
+import { WorkerPool } from "./worker-pool.js";
 
 // -----------------------------------------------------------
 // SET UP
@@ -18,9 +19,11 @@ const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(window.devicePixelRatio);
 
 const scenes = [];
-const nObjects = 10;
+const nObjects = 100;
 let selectedIndices = new Set();
 let population = [];
+let isOrbitAll = false;
+let lastInteractedControl = null;
 
 const loader = new FontLoader();
 const FONT_URL = 'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/fonts/helvetiker_bold.typeface.json';
@@ -30,9 +33,28 @@ loader.load(FONT_URL, (font) => {
     buildGallery();
 });
 
+function resetAllCameras() {
+    scenes.forEach(data => {
+        if (!data.mesh) return;
+        data.camera.position.set(data.target.x, data.target.y - data.fitDistance, data.target.z);
+        data.controls.target.copy(data.target);
+        data.controls.update();
+    });
+    lastInteractedControl = null;
+}
+
 // -----------------------------------------------------------
 // EVOLUTION BUTTONS
 // -----------------------------------------------------------
+const orbitToggle = document.createElement('button');
+orbitToggle.innerText = 'Orbit: Single';
+orbitToggle.onclick = () => {
+    isOrbitAll = !isOrbitAll;
+    orbitToggle.innerText = isOrbitAll ? 'Orbit: ALL' : 'Orbit: Single';
+    if (isOrbitAll) resetAllCameras();
+};
+document.getElementById('next-gen-btn').parentElement.appendChild(orbitToggle);
+
 document.getElementById('next-gen-btn').onclick = evolve;
 document.getElementById('reset-btn').onclick = () => {
     if (confirm("This will delete your current evolutionary progress and start with random shapes")) {
@@ -54,8 +76,17 @@ document.getElementById('reset-btn').onclick = () => {
 // BUILD GALLERY
 // -----------------------------------------------------------
 async function buildGallery() {
-    console.log("Starting build");
-    // GET PARAMETERS
+    console.log("Starting gallery build");
+
+    const workerPool = new WorkerPool();
+    console.log(workerPool.getStats());
+
+    // Clear previous gallery
+    content.innerHTML = '';
+    scenes.length = 0;
+    selectedIndices.clear();
+
+    // GET PARAMETERS SAVED IN LOCAL STORAGE OR CREATE RANDOM ONES
     let storedData = loadPopulationFromStorage();
 
     if (storedData.length > 0 && population.length === 0) {
@@ -64,7 +95,6 @@ async function buildGallery() {
 
     if (population.length === 0) {
         const genomeLength = Object.keys(PARAMS_CONFIG).length;
-        console.log(genomeLength);
         for (let i = 0; i < nObjects; i++) {
             const dna = Array.from({ length: genomeLength }, () => Math.random());
             population.push({
@@ -76,8 +106,32 @@ async function buildGallery() {
         savePopulationToStorage();
     }
 
+    // Prepare font data for each individual
+    population.forEach(item => {
+        item.fontShapeData = buildFontShapeData(item.params);
+    });
+
+    // Phase 1: Fire off all low-poly generation tasks immediately.
+    // This "floods" the worker pool with the priority tasks. Because workers 
+    // process messages in FIFO order, they will finish all 100 low-poly tasks 
+    // before they ever start on a mid-poly upgrade.
+    const totalStartTime = performance.now();
+
+    const lowPolyTasks = population.map(item =>
+        workerPool.generateSingle(item.params, item.fontShapeData, 'low', item.id)
+    );
+    console.log("GALLERY: All LOW-POLY tasks queued.");
+
+    Promise.all(lowPolyTasks).then(() => {
+        const elapsed = (performance.now() - totalStartTime).toFixed(2);
+        console.log(`GALLERY: All LOW-POLY meshes generated in ${elapsed}ms`);
+    });
+
+    const midPolyProgressPromises = [];
+
+    // Phase 2: Create UI placeholders and attach handlers to the pre-dispatched tasks
     for (let i = 0; i < population.length; i++) {
-        const params = population[i].params;
+        const item = population[i];
 
         const element = document.createElement('div');
         element.className = 'item';
@@ -100,12 +154,10 @@ async function buildGallery() {
             if (distance < 5) {
                 if (selectedIndices.has(i)) {
                     selectedIndices.delete(i);
-                    element.style.background = "transparent";
-                    element.style.borderRadius = "0";
+                    element.classList.remove('item-selected');
                 } else {
                     selectedIndices.add(i);
-                    element.style.background = "rgba(255, 255, 255, 0.15)";
-                    element.style.borderRadius = "20px";
+                    element.classList.add('item-selected');
                 }
                 console.log("Selected Parents:", Array.from(selectedIndices));
             }
@@ -113,7 +165,7 @@ async function buildGallery() {
 
         element.addEventListener('dblclick', () => {
             localStorage.setItem('selectedMandala', JSON.stringify(population[i].params));
-            localStorage.setItem('selectedDNA', JSON.stringify(population[i].dna));
+            //localStorage.setItem('selectedDNA', JSON.stringify(population[i].dna));
             savePopulationToStorage(); // Save the CURRENT population
             window.location.href = 'index.html';
         });
@@ -130,24 +182,11 @@ async function buildGallery() {
         controls.target.set(0, 0, 10);
         controls.enablePan = false;
         controls.enableZoom = false;
-        controls.update();
 
-        const mesh = createMandala(params, true);
-        scene.add(mesh);
+        controls.addEventListener('start', () => {
+            lastInteractedControl = controls;
+        });
 
-        // FIT OBJECT IN SQUARE
-        const box = new THREE.Box3().setFromObject(mesh);
-        const size = box.getSize(new THREE.Vector3());
-        const center = box.getCenter(new THREE.Vector3());
-
-        const maxDim = Math.max(size.x, size.y, size.z);
-        const fov = camera.fov * (Math.PI / 180);
-
-        let cameraZ = Math.abs(maxDim / 2 / Math.tan(fov / 2));
-        cameraZ *= 1.5; // Padding
-
-        camera.position.set(0, -cameraZ, center.z);
-        controls.target.set(center.x, center.y, center.z);
         controls.update();
 
         // LIGHT
@@ -156,13 +195,84 @@ async function buildGallery() {
         scene.add(light);
         scene.add(new THREE.AmbientLight(0xffffff, 0.3));
 
-        scenes.push({ element, scene, camera, mesh, controls });
+        // Register the scene immediately
+        const sceneData = {
+            element,
+            scene,
+            camera,
+            mesh: null,
+            controls,
+            id: item.id,
+            fitDistance: 0,
+            target: new THREE.Vector3(),
+            geometryOffset: new THREE.Vector3()
+        };
+        scenes.push(sceneData);
 
-        await new Promise(resolve => requestAnimationFrame(resolve)); // loads objects as they are being created
+        // Handle the result of the task we dispatched earlier
+        const taskChain = lowPolyTasks[i]
+            .then(lowData => {
+                // 1. Create and add the Low-Poly mesh
+                const mesh = createMeshFromData(lowData.geometryData);
+
+                // 2. Center the geometry so rotation happens at the object center
+                const box = new THREE.Box3().setFromObject(mesh);
+                const center = new THREE.Vector3();
+                box.getCenter(center);
+
+                // Shift vertices to local origin and move the mesh container to the center
+                const offset = center.clone().negate();
+                mesh.geometry.translate(offset.x, offset.y, offset.z);
+                mesh.position.copy(center);
+
+                sceneData.geometryOffset.copy(offset);
+                sceneData.target.copy(center);
+
+                // 3. Position camera for this specific mesh
+                const size = box.getSize(new THREE.Vector3());
+                const maxDim = Math.max(size.x, size.y, size.z);
+                const fov = camera.fov * (Math.PI / 180);
+                let cameraZ = Math.abs(maxDim / 2 / Math.tan(fov / 2)) * 1.5;
+
+                sceneData.fitDistance = cameraZ;
+
+                // Use center.x instead of 0 to fix the "Orbit All" alignment jump
+                camera.position.set(center.x, center.y - cameraZ, center.z);
+                controls.target.copy(center);
+                controls.update();
+
+                // Add to scene and register mesh for the renderer
+                scene.add(mesh);
+                sceneData.mesh = mesh;
+
+                // 4. Immediately trigger Mid-Poly generation
+                // This request enters the worker queue AFTER all initial 100 low-poly tasks
+                return workerPool.generateSingle(item.params, item.fontShapeData, 'mid', item.id);
+            })
+            .then(midData => {
+                // 5. Swap geometry to Mid-Poly
+                updateMeshFromData(sceneData.mesh, midData.geometryData);
+
+                // Re-apply the same centering offset to the new geometry
+                const off = sceneData.geometryOffset;
+                sceneData.mesh.geometry.translate(off.x, off.y, off.z);
+            })
+            .catch(err => console.error(`Generation failed for item ${item.id}:`, err));
+
+        midPolyProgressPromises.push(taskChain);
+
+        //await new Promise(resolve => requestAnimationFrame(resolve));
+        // Small pause every 10 items to keep the UI responsive while creating 100 scenes
+        if (i % 10 === 0) await new Promise(resolve => requestAnimationFrame(resolve));
     }
 
-    console.log(population);
-    exportPopulationJSON(population);
+    Promise.all(midPolyProgressPromises).then(() => {
+        const totalElapsed = (performance.now() - totalStartTime).toFixed(2);
+        console.log(`GALLERY: FULL GENERATION COMPLETE. Total time to Mid-Poly: ${totalElapsed}ms`);
+    });
+
+    //console.log(population);
+    //exportPopulationJSON(population);
 }
 
 // -----------------------------------------------------------
@@ -196,9 +306,25 @@ function updateAndRender() {
         renderer.setViewport(left, bottom, width, height);
         renderer.setScissor(left, bottom, width, height);
 
+        // Sync rotation only (Orientation)
+        if (isOrbitAll && lastInteractedControl && data.controls !== lastInteractedControl && data.mesh) {
+            const masterCamera = lastInteractedControl.object;
+            const masterTarget = lastInteractedControl.target;
+
+            // Get the direction vector from the master camera to its target
+            const offset = new THREE.Vector3().subVectors(masterCamera.position, masterTarget);
+
+            // Apply that same direction to the local object, using the local target and local fitDistance
+            const localOffset = offset.clone().normalize().multiplyScalar(data.fitDistance);
+            data.camera.position.copy(data.target).add(localOffset);
+            data.controls.target.copy(data.target);
+        }
+
         data.controls.update();
-        data.mesh.rotation.z += 0.003; // Gentle spin
-        renderer.render(data.scene, data.camera);
+        if (data.mesh) {
+            data.mesh.rotation.z += 0.003; // Gentle spin
+            renderer.render(data.scene, data.camera);
+        }
     });
 
     requestAnimationFrame(updateAndRender);
@@ -209,7 +335,7 @@ function updateAndRender() {
 // -----------------------------------------------------------
 async function evolve() {
     if (selectedIndices.size < 2) {
-        alert("Please select at least 2 parents to breed a new generation");
+        alert("Select at least 2 parents to breed a new generation");
         return;
     }
 

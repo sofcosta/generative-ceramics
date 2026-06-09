@@ -1,7 +1,7 @@
 // -----------------------------------------------------------
 // IMPORTS
 // -----------------------------------------------------------
-import { PARAMS_CONFIG } from "./mandala_tree.js";
+import { PARAMS_CONFIG } from "./engine.js";
 
 export function crossover(dnaA, dnaB) {
     const childDNA = [];

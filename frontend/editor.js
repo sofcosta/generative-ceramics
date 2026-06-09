@@ -11,12 +11,11 @@ import { FontLoader } from "https://esm.sh/three/examples/jsm/loaders/FontLoader
 import { CSS2DRenderer, CSS2DObject } from "https://esm.sh/three/examples/jsm/renderers/CSS2DRenderer.js";
 
 // My imports
-import { createMandala, randomizeParams, PARAMS_CONFIG, setFont } from "./mandala_tree.js";
+import { createMandalaAsync, randomizeParams, PARAMS_CONFIG, setFont } from "./engine.js";
 
 // -----------------------------------------------------------
 // SET UP
 // -----------------------------------------------------------
-
 // Setup CSS2D Renderer
 const labelRenderer = new CSS2DRenderer();
 labelRenderer.setSize(window.innerWidth, window.innerHeight);
@@ -137,12 +136,66 @@ if (savedData) {
 }
 
 // -----------------------------------------------------------
-// BUILD GEOMETRY
+// WORKER POOL SETUP
+// -----------------------------------------------------------
+let isGenerating = false;
+let pendingParams = null;
+
+// BUILD GEOMETRY (Non-blocking with Web Workers)
 // -----------------------------------------------------------
 let currentMesh = null;
 let overhangMesh = null;
 
-function buildGeometry() {
+async function buildGeometry() {
+    // Queue parameter change if generation is ongoing
+    if (isGenerating) {
+        pendingParams = JSON.parse(JSON.stringify(params));
+        console.log('Generation in progress, queuing new parameters...');
+        return;
+    }
+
+    isGenerating = true;
+    pendingParams = null;
+
+    try {
+        // Show loading indicator
+        const label = document.getElementById('dimensions-label');
+        if (label) label.innerHTML = 'Generating...';
+
+        const startTime = performance.now();
+
+        const mesh = await createMandalaAsync(params, 'high');
+
+        const duration = (performance.now() - startTime).toFixed(2);
+        console.log(`Generated in ${duration}ms`);
+
+        // Only update if we haven't queued new parameters
+        if (!pendingParams) {
+            displayMesh(mesh);
+        }
+    } catch (error) {
+        console.error('Error generating geometry:', error);
+        const label = document.getElementById('dimensions-label');
+        if (label) label.innerHTML = '❌ Generation error';
+    } finally {
+        isGenerating = false;
+
+        // If parameters changed during generation, render with new ones
+        if (pendingParams) {
+            const nextParams = pendingParams;
+            pendingParams = null;
+            Object.assign(params, nextParams);
+            gui.controllers.forEach(c => c.updateDisplay());
+            Object.values(folders).forEach(folder => {
+                folder.controllers.forEach(c => c.updateDisplay());
+            });
+            await buildGeometry();
+        }
+    }
+}
+
+function displayMesh(newMesh) {
+    // Clean up old mesh
     if (currentMesh) {
         scene.remove(currentMesh);
         currentMesh.geometry.dispose();
@@ -164,21 +217,15 @@ function buildGeometry() {
         if (comMarker.material.dispose) comMarker.material.dispose();
         comMarker = null;
     }
-    // ---------------------------------------------------------
 
-    const panel = document.getElementById('fitness-panel');
-    if (panel) panel.style.display = 'none'; // Hides the report
-    // -----------------------------------
-
-    currentMesh = createMandala(params, false);
-
-    const pointCount = currentMesh.geometry.attributes.position.count;
-
-    console.log(`Total points in this object: ${pointCount}`);
+    currentMesh = newMesh;
 
     currentMesh.geometry.computeBoundingBox();
     const size = new THREE.Vector3();
     currentMesh.geometry.boundingBox.getSize(size);
+
+    const panel = document.getElementById('fitness-panel');
+    if (panel) panel.style.display = 'none';
 
     const label = document.getElementById('dimensions-label');
     if (label) {
@@ -188,6 +235,7 @@ function buildGeometry() {
             HEIGHT: ${size.z.toFixed(2)}mm
         `;
     }
+
     scene.add(currentMesh);
 }
 
@@ -204,7 +252,7 @@ const folders = {
 
 Object.keys(PARAMS_CONFIG).forEach(key => {
     const config = PARAMS_CONFIG[key];
-    const targetFolder = folders[config.folder] || gui; // Fallback to main GUI if no folder specified
+    const targetFolder = folders[config.folder] || gui;
     const label = config.label || key;
 
     let controller;
@@ -223,76 +271,10 @@ Object.keys(PARAMS_CONFIG).forEach(key => {
 gui.add({ randomizeParamsGUI }, 'randomizeParamsGUI').name('Randomize');
 gui.add({ evaluateMesh }, 'evaluateMesh').name('Evaluate Model');
 gui.add({ exportAll }, 'exportAll').name('Download');
-//gui.add({ export100 }, 'export100').name('Download 100');
 
 // -----------------------------------------------------------
 // GUI HELPER FUNCTIONS
 // -----------------------------------------------------------
-function export100() {
-    const totalToExport = 10;
-    const exporterOBJ = new OBJExporter();
-    const stamp = getTimestamp();
-
-    // Object to hold files before zipping
-    const zipFiles = {};
-
-    console.log(`Starting bulk generation & OBJ compression for ${totalToExport} meshes...`);
-    const tStart = performance.now();
-
-    // Determine parameter keys configuration length
-    const genomeLength = Object.keys(PARAMS_CONFIG).length;
-
-    for (let i = 0; i < totalToExport; i++) {
-        // 1. Generate random genetic combinations
-        const dna = Array.from({ length: genomeLength }, () => Math.random());
-
-        // Convert array traits to usable structural parameters
-        // Note: Make sure EVO is imported or accessible if genotypeToParams lives there,
-        // otherwise if randomizeParams works directly, you can pass a temporary object:
-        let tempParams = params;
-        randomizeParams(tempParams);
-
-        // 2. Build the 3D geometry invisibly in memory
-        // passing 'true' for isGallery enforces a low-poly configuration for quick parsing
-        const tempMesh = createMandala(tempParams, false);
-
-        // 3. Match the export scaling factor used in exportAll()
-        tempMesh.scale.set(10, 10, 10);
-        tempMesh.updateMatrixWorld();
-
-        // 4. Parse geometry structure to OBJ text asset
-        const objText = exporterOBJ.parse(tempMesh);
-
-        // 5. Convert strings to Uint8Arrays for fflate parsing
-        const encoder = new TextEncoder();
-        const objData = encoder.encode(objText);
-        const jsonData = encoder.encode(JSON.stringify(tempParams, null, 4));
-
-        // 6. Append entries to our staging archive layout object
-        // Padding digits (e.g. 003) keeps filenames ordered neatly inside windows file explorer
-        const padIndex = String(i + 1).padStart(3, '0');
-        zipFiles[`bulk_export_${stamp}/mandala_${padIndex}.obj`] = objData;
-        zipFiles[`bulk_export_${stamp}/params_${padIndex}.json`] = jsonData;
-
-        // 7. Dispose allocations from processor memory instantly to prevent page crashes
-        tempMesh.geometry.dispose();
-    }
-
-    // 8. Compress and package layout structure instantly (level: 0 for max execution speed)
-    const zipped = fflate.zipSync(zipFiles, { level: 0 });
-
-    // 9. Deliver bundle straight to user browser downloads folder
-    const blob = new Blob([zipped], { type: 'application/zip' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = `bulk_mandalas_obj_${stamp}.zip`;
-    link.click();
-    URL.revokeObjectURL(link.href); // Free up browser allocation references
-
-    const tEnd = performance.now();
-    console.log(`Successfully packed 100 objects in ${(tEnd - tStart).toFixed(2)}ms!`);
-}
-
 function randomizeParamsGUI() {
     randomizeParams(params);
 
