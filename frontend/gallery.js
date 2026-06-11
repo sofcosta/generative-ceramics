@@ -120,11 +120,11 @@ async function buildGallery() {
     const lowPolyTasks = population.map(item =>
         workerPool.generateSingle(item.params, item.fontShapeData, 'low', item.id)
     );
-    console.log("GALLERY: All LOW-POLY tasks queued.");
+    console.log(`GALLERY: All ${lowPolyTasks.length} LOW-POLY tasks queued.`);
 
     Promise.all(lowPolyTasks).then(() => {
         const elapsed = (performance.now() - totalStartTime).toFixed(2);
-        console.log(`GALLERY: All LOW-POLY meshes generated in ${elapsed}ms`);
+        console.log(`GALLERY: All ${lowPolyTasks.length} LOW-POLY meshes generated in ${elapsed}ms`);
     });
 
     const midPolyProgressPromises = [];
@@ -268,7 +268,7 @@ async function buildGallery() {
 
     Promise.all(midPolyProgressPromises).then(() => {
         const totalElapsed = (performance.now() - totalStartTime).toFixed(2);
-        console.log(`GALLERY: FULL GENERATION COMPLETE. Total time to Mid-Poly: ${totalElapsed}ms`);
+        console.log(`GALLERY: ${nObjects} GENERATED. Total time to Mid-Poly: ${totalElapsed}ms`);
     });
 
     //console.log(population);

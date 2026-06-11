@@ -109,11 +109,13 @@ function getMiterOffset(pts, index, offset) {
     const [mx, my] = _normalize2(n1x + n2x, n1y + n2y);
     const dot = mx * n1x + my * n1y;
 
-    // Miter limit: If the angle is too sharp, we cap the length 
-    // but keep it on the bisector. This "cuts off" the corner inside.
-    // Using 0.5 as a threshold (approx 60 degrees) prevents self-intersection.
+    // Miter limit: If the angle is too sharp, we cap the miter length.
+    // We calculate the ratio (1/cos(theta)) and clamp it before applying the offset.
+    // This ensures positive and negative offsets behave symmetrically.
     const miterLimit = 2.5;
-    const length = Math.min(offset / Math.max(dot, 0.1), offset * miterLimit);
+    const miterRatio = 1.0 / Math.max(dot, 0.1);
+    const clampedRatio = Math.min(miterRatio, miterLimit);
+    const length = offset * clampedRatio;
 
     return { x: p2.x + mx * length, y: p2.y + my * length };
 }
@@ -212,16 +214,17 @@ function getShapeVertices(type, size, wallThickness, radialRes, fontPts) {
     }
 
     skeleton = _reorderToTop(skeleton);
-    const innerSkeleton = skeleton.map((_, i) => getMiterOffset(skeleton, i, wallThickness));
+    const outerSkeleton = skeleton.map((_, i) => getMiterOffset(skeleton, i, -wallThickness / 2));
+    const innerSkeleton = skeleton.map((_, i) => getMiterOffset(skeleton, i, wallThickness / 2));
 
     if (skeleton.length < radialRes) {
         return {
-            outer: subdivideSkeleton(skeleton, radialRes),
+            outer: subdivideSkeleton(outerSkeleton, radialRes),
             inner: subdivideSkeleton(innerSkeleton, radialRes)
         };
     }
 
-    return { outer: skeleton, inner: innerSkeleton };
+    return { outer: outerSkeleton, inner: innerSkeleton };
 }
 
 /**
