@@ -19,7 +19,8 @@ const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(window.devicePixelRatio);
 
 const scenes = [];
-const nObjects = 100;
+let nObjects = 10;
+let individualsShown = 10;
 let selectedIndices = new Set();
 let population = [];
 let isOrbitAll = false;
@@ -44,17 +45,35 @@ function resetAllCameras() {
 }
 
 // -----------------------------------------------------------
-// EVOLUTION BUTTONS
+// GALLERY CONTROLS
 // -----------------------------------------------------------
-const orbitToggle = document.createElement('button');
-orbitToggle.innerText = 'Orbit: Single';
+const popSize = document.getElementById('popultation-size');
+popSize.value = nObjects;
+popSize.oninput = function () {
+    console.log(popSize.value);
+    nObjects = popSize.value;
+    indivShow.max = nObjects;
+}
+
+const indivShow = document.getElementById('individuals-show');
+indivShow.value = individualsShown;
+indivShow.max = nObjects;
+indivShow.oninput = function () {
+    console.log(indivShow.value);
+    individualsShown = indivShow.value;
+    updateVisibleSet();
+}
+
+const orbitToggle = document.getElementById('orbit-toggle');
 orbitToggle.onclick = () => {
     isOrbitAll = !isOrbitAll;
-    orbitToggle.innerText = isOrbitAll ? 'Orbit: ALL' : 'Orbit: Single';
+    orbitToggle.innerText = isOrbitAll ? 'Orbit Single' : 'Orbit Together';
     if (isOrbitAll) resetAllCameras();
 };
-document.getElementById('next-gen-btn').parentElement.appendChild(orbitToggle);
 
+// -----------------------------------------------------------
+// EVOLUTION BUTTONS
+// -----------------------------------------------------------
 document.getElementById('next-gen-btn').onclick = evolve;
 document.getElementById('reset-btn').onclick = () => {
     if (confirm("This will delete your current evolutionary progress and start with random shapes")) {
@@ -71,6 +90,25 @@ document.getElementById('reset-btn').onclick = () => {
         console.log("Population Reset");
     }
 };
+
+
+function updateVisibleSet() {
+    const allIndices = Array.from({ length: scenes.length }, (_, i) => i);
+    for (let j = allIndices.length - 1; j > 0; j--) {
+        const k = Math.floor(Math.random() * (j + 1));
+        [allIndices[j], allIndices[k]] = [allIndices[k], allIndices[j]];
+    }
+    scenes.forEach(data => {
+        data.visible = false;
+        data.element.style.display = 'none';
+    });
+    const count = Math.min(individualsShown, scenes.length);
+    for (let idx = 0; idx < count; idx++) {
+        const data = scenes[allIndices[idx]];
+        data.visible = true;
+        data.element.style.display = '';
+    }
+}
 
 // -----------------------------------------------------------
 // BUILD GALLERY
@@ -273,6 +311,7 @@ async function buildGallery() {
 
     //console.log(population);
     //exportPopulationJSON(population);
+    updateVisibleSet();
 }
 
 // -----------------------------------------------------------
@@ -321,7 +360,7 @@ function updateAndRender() {
         }
 
         data.controls.update();
-        if (data.mesh) {
+        if (data.mesh && data.visible) {
             data.mesh.rotation.z += 0.003; // Gentle spin
             renderer.render(data.scene, data.camera);
         }

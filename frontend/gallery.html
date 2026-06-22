@@ -92,9 +92,58 @@
             /*transform: translateY(-2px);*/
         }
 
+        #controls {
+            position: fixed;
+            bottom: 40px;
+            left: 30px;
+            /*transform: translateX(-50%); 
+            background: rgba(255, 255, 255, 0.05);*/
+            z-index: 1000;
+            display: flex;
+            gap: 15px;
+            font-size: small;
+        }
+
+        .slider {
+            display: block;
+            margin-top: 10px;
+            -webkit-appearance: none;
+            appearance: none;
+            width: 100px;
+            height: 4px;
+            background: #bbb;
+            border-radius: 2px;
+            outline: none;
+        }
+
+        .slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 12px;
+            height: 12px;
+            background: #FFF;
+            border-radius: 50%;
+            cursor: pointer;
+        }
+
+        .slider::-moz-range-thumb {
+            width: 12px;
+            height: 12px;
+            background: #FFF;
+            border-radius: 50%;
+            cursor: pointer;
+            border: none;
+        }
+
+        .slider::-moz-range-track {
+            height: 4px;
+            background: #bbb;
+            border-radius: 2px;
+        }
+
         #evolution {
             position: fixed;
-            bottom: 30px;
+            bottom: 40px;
             right: 30px;
             /*transform: translateX(-50%); */
             background: rgba(255, 255, 255, 0.05);
@@ -103,10 +152,10 @@
             gap: 5px;
         }
 
-        #evolution button {
-            padding: 10px 15px;
+        button {
+            padding: 10px 10px;
             cursor: pointer;
-            color: white;
+            background: #bbb;
             border: none;
             border-radius: 5px;
         }
@@ -118,6 +167,21 @@
         <a href="index.html" class="nav-btn"><img src="materials/square.png"></a>
         <a href="gallery.html" class="nav-btn"><img src="materials/grid.png"></a>
     </nav>
+    <div id="controls">
+        <div class="slider-container">
+            <label for="popultation-size">Population Size:</label>
+            <input type="range" min="2" max="100" class="slider" id="popultation-size">
+        </div>
+        <div class="slider-container">
+            <label for="individuals-show">Individuals Shown:</label>
+            <input type="range" min="2" max="100" class="slider" id="individuals-show">
+        </div>
+        <div class="slider-container">
+            <label for="workers">Number of Workers:</label>
+            <input type="range" min="2" max="8" class="slider" id="workers">
+        </div>
+        <button id="orbit-toggle">Orbit Together</button>
+    </div>
     <div id="evolution">
         <button id="next-gen-btn">Evolve</button>
         <button id="reset-btn">Reset</button>
