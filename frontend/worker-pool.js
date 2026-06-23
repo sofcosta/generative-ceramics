@@ -1,10 +1,21 @@
 // -----------------------------------------------------------
 // WORKER POOL - Manages multiple workers for parallel generation
 // -----------------------------------------------------------
+let auxWorkers = 5;
+
+const workersSlider = document.getElementById('workers');
+if (workersSlider) {
+    workersSlider.value = auxWorkers || 5;
+    workersSlider.oninput = function () {
+        console.log(workersSlider.value);
+        auxWorkers = workersSlider.value;
+    }
+}
+
 export class WorkerPool {
     constructor(workerScript = 'geometry-worker.js') {
         //const numCores = navigator.hardwareConcurrency / 2 || 4;
-        const numCores = 5;
+        const numCores = auxWorkers || 5;
         //const numCores = 1;
         console.log(numCores);
         this.numWorkers = Math.max(2, numCores - 1); // Leave 1 core for main thread

@@ -9,58 +9,19 @@
       {
         "imports": {
           "three": "https://esm.sh/three",
-          "three-mesh-bvh": "https://esm.sh/three-mesh-bvh@0.7.3"
+          "three-mesh-bvh": "https://esm.sh/three-mesh-bvh@0.7.3",
+          "@jgphilpott/polyslice": "https://unpkg.com/@jgphilpott/polyslice/dist/index.browser.esm.js"
         }
       }
     </script>
-    <style>
-        body {
-            margin: 0;
-            overflow: hidden;
-            background: #0a0a0a;
-        }
-
-        nav {
-            position: fixed;
-            bottom: 30px;
-            left: 50%;
-            transform: translateX(-50%);
-            z-index: 1000;
-            display: flex;
-            gap: 5px;
-            background: rgba(255, 255, 255, 0.05);
-            padding: 8px;
-            border-radius: 30px;
-            /*border: 1px solid rgba(255, 255, 255, 0.1);*/
-            backdrop-filter: blur(10px);
-        }
-
-        nav img {
-            height: 20px;
-            filter: invert(1);
-        }
-
-        .nav-btn {
-            color: white;
-            text-decoration: none;
-            font-family: 'Inter', sans-serif;
-            font-size: 14px;
-            padding: 10px 15px;
-            border-radius: 20px;
-            transition: all 0.2s ease;
-        }
-
-        .nav-btn:hover {
-            background: rgba(255, 255, 255, 0.15);
-            /*transform: translateY(-2px);*/
-        }
-    </style>
+    <link rel="stylesheet" href="style/style.css">
 </head>
 
 <body>
     <nav>
         <a href="index.html" class="nav-btn"><img src="materials/square.png"></a>
         <a href="gallery.html" class="nav-btn"><img src="materials/grid.png"></a>
+        <a href="favorites.html" class="nav-btn"><img src="materials/heart.png"></a>
     </nav>
 
     <div id="dimensions-label" style="

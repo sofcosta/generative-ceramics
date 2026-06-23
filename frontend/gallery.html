@@ -12,112 +12,30 @@
         }
     }
     </script>
-    <style>
-        body {
-            margin: 0;
-            background: #111;
-            color: white;
-            font-family: sans-serif;
-        }
-
-        #canvas {
-            position: fixed;
-            left: 0;
-            top: 0;
-            width: 100%;
-            height: 100%;
-            z-index: -1;
-        }
-
-        #content {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-            gap: 20px;
-            padding: 20px;
-        }
-
-        .item {
-            aspect-ratio: 1 / 1;
-            border-radius: 20px;
-            cursor: grab;
-        }
-
-        .item-selected {
-            background: rgba(255, 255, 255, 0.15);
-        }
-
-        .item:active {
-            cursor: grabbing;
-        }
-
-        .item-label {
-            position: absolute;
-            padding: 10px;
-            font-size: 12px;
-            color: #888;
-        }
-
-        nav {
-            position: fixed;
-            bottom: 30px;
-            left: 50%;
-            transform: translateX(-50%);
-            z-index: 1000;
-            display: flex;
-            gap: 5px;
-            background: rgba(255, 255, 255, 0.05);
-            padding: 8px;
-            border-radius: 30px;
-            /*border: 1px solid rgba(255, 255, 255, 0.1);*/
-            backdrop-filter: blur(10px);
-        }
-
-        nav img {
-            height: 20px;
-            filter: invert(1);
-        }
-
-        .nav-btn {
-            color: white;
-            text-decoration: none;
-            font-family: 'Inter', sans-serif;
-            font-size: 14px;
-            padding: 10px 15px;
-            border-radius: 20px;
-            transition: all 0.2s ease;
-        }
-
-        .nav-btn:hover {
-            background: rgba(255, 255, 255, 0.15);
-            /*transform: translateY(-2px);*/
-        }
-
-        #evolution {
-            position: fixed;
-            bottom: 30px;
-            right: 30px;
-            /*transform: translateX(-50%); */
-            background: rgba(255, 255, 255, 0.05);
-            z-index: 1000;
-            display: flex;
-            gap: 5px;
-        }
-
-        #evolution button {
-            padding: 10px 15px;
-            cursor: pointer;
-            color: white;
-            border: none;
-            border-radius: 5px;
-        }
-    </style>
+    <link rel="stylesheet" href="style/style.css">
 </head>
 
 <body>
     <nav>
         <a href="index.html" class="nav-btn"><img src="materials/square.png"></a>
         <a href="gallery.html" class="nav-btn"><img src="materials/grid.png"></a>
+        <a href="favorites.html" class="nav-btn"><img src="materials/heart.png"></a>
     </nav>
+    <div id="controls">
+        <div class="slider-container">
+            <label for="popultation-size">Population Size:</label>
+            <input type="range" min="2" max="100" class="slider" id="popultation-size">
+        </div>
+        <div class="slider-container">
+            <label for="individuals-show">Individuals Shown:</label>
+            <input type="range" min="2" max="100" class="slider" id="individuals-show">
+        </div>
+        <div class="slider-container">
+            <label for="workers">Number of Workers:</label>
+            <input type="range" min="2" max="8" class="slider" id="workers">
+        </div>
+        <button id="orbit-toggle">Orbit Together</button>
+    </div>
     <div id="evolution">
         <button id="next-gen-btn">Evolve</button>
         <button id="reset-btn">Reset</button>

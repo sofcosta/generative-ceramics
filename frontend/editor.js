@@ -12,6 +12,7 @@ import { CSS2DRenderer, CSS2DObject } from "https://esm.sh/three/examples/jsm/re
 
 // My imports
 import { createMandalaAsync, randomizeParams, PARAMS_CONFIG, setFont } from "./engine.js";
+import { saveToFavorites } from "./favorites.js";
 
 // -----------------------------------------------------------
 // SET UP
@@ -270,6 +271,7 @@ Object.keys(PARAMS_CONFIG).forEach(key => {
 
 gui.add({ randomizeParamsGUI }, 'randomizeParamsGUI').name('Randomize');
 gui.add({ evaluateMesh }, 'evaluateMesh').name('Evaluate Model');
+gui.add({ saveCurrentFavorite }, 'saveCurrentFavorite').name('Save to Favorites');
 gui.add({ exportAll }, 'exportAll').name('Download');
 
 // -----------------------------------------------------------
@@ -284,6 +286,11 @@ function randomizeParamsGUI() {
     folders['Master Shapes'].controllers.forEach(controller => controller.updateDisplay());
 
     buildGeometry();
+}
+
+function saveCurrentFavorite() {
+    saveToFavorites(params);
+    alert("Mandala saved to your browser favorites!");
 }
 
 // Helper function to handle the browser download

@@ -9,6 +9,7 @@ import { FontLoader } from "https://esm.sh/three/examples/jsm/loaders/FontLoader
 import { buildFontShapeData, PARAMS_CONFIG, randomizeParams, setFont, createMeshFromData, updateMeshFromData } from "./engine.js";
 import * as EVO from "./evolution.js";
 import { WorkerPool } from "./worker-pool.js";
+import { saveToFavorites, deleteFavorite } from "./favorites.js";
 
 // -----------------------------------------------------------
 // SET UP
@@ -19,7 +20,8 @@ const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(window.devicePixelRatio);
 
 const scenes = [];
-const nObjects = 100;
+let nObjects = 10;
+let individualsShown = 10;
 let selectedIndices = new Set();
 let population = [];
 let isOrbitAll = false;
@@ -44,17 +46,35 @@ function resetAllCameras() {
 }
 
 // -----------------------------------------------------------
-// EVOLUTION BUTTONS
+// GALLERY CONTROLS
 // -----------------------------------------------------------
-const orbitToggle = document.createElement('button');
-orbitToggle.innerText = 'Orbit: Single';
+const popSize = document.getElementById('popultation-size');
+popSize.value = nObjects;
+popSize.oninput = function () {
+    console.log(popSize.value);
+    nObjects = popSize.value;
+    indivShow.max = nObjects;
+}
+
+const indivShow = document.getElementById('individuals-show');
+indivShow.value = individualsShown;
+indivShow.max = nObjects;
+indivShow.oninput = function () {
+    console.log(indivShow.value);
+    individualsShown = indivShow.value;
+    updateVisibleSet();
+}
+
+const orbitToggle = document.getElementById('orbit-toggle');
 orbitToggle.onclick = () => {
     isOrbitAll = !isOrbitAll;
-    orbitToggle.innerText = isOrbitAll ? 'Orbit: ALL' : 'Orbit: Single';
+    orbitToggle.innerText = isOrbitAll ? 'Orbit Single' : 'Orbit Together';
     if (isOrbitAll) resetAllCameras();
 };
-document.getElementById('next-gen-btn').parentElement.appendChild(orbitToggle);
 
+// -----------------------------------------------------------
+// EVOLUTION BUTTONS
+// -----------------------------------------------------------
 document.getElementById('next-gen-btn').onclick = evolve;
 document.getElementById('reset-btn').onclick = () => {
     if (confirm("This will delete your current evolutionary progress and start with random shapes")) {
@@ -71,6 +91,25 @@ document.getElementById('reset-btn').onclick = () => {
         console.log("Population Reset");
     }
 };
+
+
+function updateVisibleSet() {
+    const allIndices = Array.from({ length: scenes.length }, (_, i) => i);
+    for (let j = allIndices.length - 1; j > 0; j--) {
+        const k = Math.floor(Math.random() * (j + 1));
+        [allIndices[j], allIndices[k]] = [allIndices[k], allIndices[j]];
+    }
+    scenes.forEach(data => {
+        data.visible = false;
+        data.element.style.display = 'none';
+    });
+    const count = Math.min(individualsShown, scenes.length);
+    for (let idx = 0; idx < count; idx++) {
+        const data = scenes[allIndices[idx]];
+        data.visible = true;
+        data.element.style.display = '';
+    }
+}
 
 // -----------------------------------------------------------
 // BUILD GALLERY
@@ -120,11 +159,11 @@ async function buildGallery() {
     const lowPolyTasks = population.map(item =>
         workerPool.generateSingle(item.params, item.fontShapeData, 'low', item.id)
     );
-    console.log("GALLERY: All LOW-POLY tasks queued.");
+    console.log(`GALLERY: All ${lowPolyTasks.length} LOW-POLY tasks queued.`);
 
     Promise.all(lowPolyTasks).then(() => {
         const elapsed = (performance.now() - totalStartTime).toFixed(2);
-        console.log(`GALLERY: All LOW-POLY meshes generated in ${elapsed}ms`);
+        console.log(`GALLERY: All ${lowPolyTasks.length} LOW-POLY meshes generated in ${elapsed}ms`);
     });
 
     const midPolyProgressPromises = [];
@@ -135,17 +174,27 @@ async function buildGallery() {
 
         const element = document.createElement('div');
         element.className = 'item';
-        element.innerHTML = `<div class="item-label"></div>`;
+        element.innerHTML = `
+            <div class="item-label"></div>
+            <div class="item-actions">
+                <a class="favorite-btn"><img src="materials/heart.png"></a>
+            </div>
+        `;
         content.appendChild(element);
 
         // MOUSE CLICK VS DRAG LOGIC
         let mouseStartPos = { x: 0, y: 0 };
 
         element.addEventListener('mousedown', (e) => {
+            if (e.target.closest('.favorite-btn')) return;
+
             mouseStartPos = { x: e.clientX, y: e.clientY };
         });
 
         element.addEventListener('mouseup', (e) => {
+            if (e.target.closest('.favorite-btn')) return;
+            if (!mouseStartPos) return;
+
             const dx = e.clientX - mouseStartPos.x;
             const dy = e.clientY - mouseStartPos.y;
             const distance = Math.sqrt(dx * dx + dy * dy);
@@ -161,6 +210,7 @@ async function buildGallery() {
                 }
                 console.log("Selected Parents:", Array.from(selectedIndices));
             }
+            mouseStartPos = null; // Reset
         });
 
         element.addEventListener('dblclick', () => {
@@ -169,6 +219,34 @@ async function buildGallery() {
             savePopulationToStorage(); // Save the CURRENT population
             window.location.href = 'index.html';
         });
+
+        element.querySelector('.favorite-btn').onclick = (e) => {
+            e.stopPropagation();
+
+            const favBtn = e.currentTarget;
+
+            if (favBtn.classList.contains('is-favorite')) {
+                // 1. REMOVE: Use the ID we previously stored on this object
+                const favId = population[i].favoriteId;
+                if (favId) {
+                    deleteFavorite(favId);
+                    delete population[i].favoriteId; // Clean up memory
+                }
+                favBtn.classList.remove('is-favorite');
+            } else {
+                // 2. ADD: Save to favorites and capture the returned favorite object
+                const savedItem = saveToFavorites(population[i].params);
+
+                // Dynamically store the generated ID on this runtime object!
+                population[i].favoriteId = savedItem.id;
+
+                favBtn.classList.add('is-favorite');
+
+                // Optional flash effect
+                favBtn.style.background = 'rgba(255, 255, 255, 0.3)';
+                setTimeout(() => { favBtn.style.background = ''; }, 300);
+            }
+        };
 
         // INDIVIDUAL SCENES
         const scene = new THREE.Scene();
@@ -268,11 +346,12 @@ async function buildGallery() {
 
     Promise.all(midPolyProgressPromises).then(() => {
         const totalElapsed = (performance.now() - totalStartTime).toFixed(2);
-        console.log(`GALLERY: FULL GENERATION COMPLETE. Total time to Mid-Poly: ${totalElapsed}ms`);
+        console.log(`GALLERY: ${nObjects} GENERATED. Total time to Mid-Poly: ${totalElapsed}ms`);
     });
 
     //console.log(population);
     //exportPopulationJSON(population);
+    updateVisibleSet();
 }
 
 // -----------------------------------------------------------
@@ -321,7 +400,7 @@ function updateAndRender() {
         }
 
         data.controls.update();
-        if (data.mesh) {
+        if (data.mesh && data.visible) {
             data.mesh.rotation.z += 0.003; // Gentle spin
             renderer.render(data.scene, data.camera);
         }

@@ -84,9 +84,17 @@ function _normalize2(x, y) {
 }
 
 // ============================================================
-// SHAPE SAMPLING  (identical logic to original)
+// GEOMETRY GENERATION
+// Produces raw Float32Array (positions) + Uint32Array (indices).
+// No Three.js objects
 // ============================================================
 
+const PRIMITIVES = ['Square', 'Circle', 'Triangle', 'Irregular'];
+
+/**
+ * Calculates the miter offset for a vertex. 
+ * Includes a limit to prevent "exploding" geometry on sharp corners.
+ */
 function getMiterOffset(pts, index, offset) {
     const p2 = pts[index];
     const p1 = pts[(index - 1 + pts.length) % pts.length];
@@ -100,74 +108,124 @@ function getMiterOffset(pts, index, offset) {
 
     const [mx, my] = _normalize2(n1x + n2x, n1y + n2y);
     const dot = mx * n1x + my * n1y;
-    const length = offset / Math.max(dot, 0.1);
+
+    // Miter limit: If the angle is too sharp, we cap the miter length.
+    // We calculate the ratio (1/cos(theta)) and clamp it before applying the offset.
+    // This ensures positive and negative offsets behave symmetrically.
+    const miterLimit = 2.5;
+    const miterRatio = 1.0 / Math.max(dot, 0.1);
+    const clampedRatio = Math.min(miterRatio, miterLimit);
+    const length = offset * clampedRatio;
 
     return { x: p2.x + mx * length, y: p2.y + my * length };
 }
 
-/**
- * @param {string}        type            – 'Circle' | 'Square' | 'Triangle' | 'Irregular' | 'Letter'
- * @param {number}        angle           – sample angle in radians
- * @param {number}        size            – shape radius / scale
- * @param {number}        offset          – wall-inset distance (0 = outer skin)
- * @param {Array|null}    fontShapePoints – pre-built [{x,y}] array for Letter mode
- */
-function getPointOnPrimitive(type, angle, size, offset, fontShapePoints) {
-    const r = size;
-    let pts;
-
-    if (type === 'Circle') {
-        const a = angle + Math.PI / 2;
-        return { x: Math.cos(a) * (r - offset), y: Math.sin(a) * (r - offset) };
+function _reorderToTop(pts) {
+    if (!pts.length) return pts;
+    let bestIdx = 0, maxY = -Infinity;
+    for (let i = 0; i < pts.length; i++) {
+        // Use a small epsilon to handle floating point noise at the top edge
+        if (pts[i].y > maxY + 0.001) {
+            maxY = pts[i].y; bestIdx = i;
+        } else if (Math.abs(pts[i].y - maxY) < 0.001 && pts[i].x < pts[bestIdx].x) {
+            bestIdx = i;
+        }
     }
-
-    if (type === 'Square') {
-        pts = [
-            { x: r, y: r }, { x: -r, y: r }, { x: -r, y: -r }, { x: r, y: -r },
-        ];
-    } else if (type === 'Triangle') {
-        const tr = r * 1.5;
-        pts = [
-            { x: 0, y: tr },
-            { x: tr * Math.cos(7 * Math.PI / 6), y: tr * Math.sin(7 * Math.PI / 6) },
-            { x: tr * Math.cos(-Math.PI / 6), y: tr * Math.sin(-Math.PI / 6) },
-        ];
-    } else if (type === 'Irregular') {
-        pts = [
-            { x: 0, y: r * 1.5 },
-            { x: -r * 0.8, y: -r * 0.2 },
-            { x: 0, y: -r * 0.5 },
-            { x: r * 1.2, y: 0 },
-        ];
-    } else if (type === 'Letter' && fontShapePoints) {
-        // Points were pre-built in the main thread (already world-scaled & centred)
-        pts = fontShapePoints;
-    } else {
-        return { x: 0, y: 0 };
-    }
-
-    const normalizedAngle = ((angle % (Math.PI * 2)) + (Math.PI * 2)) % (Math.PI * 2);
-    const t = normalizedAngle / (Math.PI * 2);
-    const segmentFloat = t * pts.length;
-    const i = Math.floor(segmentFloat) % pts.length;
-    const localT = segmentFloat - Math.floor(segmentFloat);
-
-    const pStart = getMiterOffset(pts, i, offset);
-    const pEnd = getMiterOffset(pts, (i + 1) % pts.length, offset);
-
-    return {
-        x: pStart.x + (pEnd.x - pStart.x) * localT,
-        y: pStart.y + (pEnd.y - pStart.y) * localT
-    };
+    return [...pts.slice(bestIdx), ...pts.slice(0, bestIdx)];
 }
 
-// ============================================================
-// GEOMETRY GENERATION
-// Produces raw Float32Array (positions) + Uint32Array (indices).
-// No Three.js objects
-// ============================================================
+function _getTriangleArea(p1, p2, p3) {
+    return Math.abs((p1.x * (p2.y - p3.y) + p2.x * (p3.y - p1.y) + p3.x * (p1.y - p2.y)) / 2.0);
+}
 
-const PRIMITIVES = ['Square', 'Circle', 'Triangle', 'Irregular'];
+function visvalingamWhyatt(pts, target) {
+    let current = pts.map((p, i) => ({ ...p }));
+    while (current.length > target) {
+        let minScore = Infinity, removeIdx = -1;
+        for (let i = 0; i < current.length; i++) {
+            const prev = current[(i - 1 + current.length) % current.length];
+            const curr = current[i];
+            const next = current[(i + 1) % current.length];
+
+            const area = _getTriangleArea(prev, curr, next);
+            // Heuristic: multiply area by the cosine of the angle to protect sharp corners
+            if (area < minScore) { minScore = area; removeIdx = i; }
+        }
+        current.splice(removeIdx, 1);
+    }
+    return current;
+}
+
+function subdivideSkeleton(pts, target) {
+    const n = pts.length;
+    const lengths = new Float64Array(n);
+    let totalLen = 0;
+    for (let i = 0; i < n; i++) {
+        const p1 = pts[i], p2 = pts[(i + 1) % n];
+        lengths[i] = Math.sqrt((p2.x - p1.x) ** 2 + (p2.y - p1.y) ** 2);
+        totalLen += lengths[i];
+    }
+    const counts = new Int32Array(n);
+    let sum = 0;
+    for (let i = 0; i < n; i++) {
+        counts[i] = Math.max(1, Math.round((lengths[i] / totalLen) * target));
+        sum += counts[i];
+    }
+    while (sum !== target) {
+        const dir = sum < target ? 1 : -1;
+        let bestIdx = 0, maxVal = -1;
+        for (let i = 0; i < n; i++) { if (lengths[i] > maxVal) { maxVal = lengths[i]; bestIdx = i; } }
+        counts[bestIdx] += dir; sum += dir;
+    }
+    const result = [];
+    for (let i = 0; i < n; i++) {
+        const p1 = pts[i], p2 = pts[(i + 1) % n];
+        for (let j = 0; j < counts[i]; j++) {
+            const t = j / counts[i];
+            result.push({ x: p1.x + (p2.x - p1.x) * t, y: p1.y + (p2.y - p1.y) * t });
+        }
+    }
+    return result;
+}
+
+function getShapeVertices(type, size, wallThickness, radialRes, fontPts) {
+    let skeleton = [];
+    const r = size;
+    if (type === 'Circle') {
+        for (let i = 0; i < 64; i++) {
+            const a = (i / 64) * Math.PI * 2 + Math.PI / 2;
+            skeleton.push({ x: Math.cos(a) * r, y: Math.sin(a) * r });
+        }
+    } else if (type === 'Square') {
+        skeleton = [{ x: -r, y: r }, { x: -r, y: -r }, { x: r, y: -r }, { x: r, y: r }];
+    } else if (type === 'Triangle') {
+        const tr = r * 1.5;
+        skeleton = [{ x: 0, y: tr }, { x: tr * Math.cos(7 * Math.PI / 6), y: tr * Math.sin(7 * Math.PI / 6) }, { x: tr * Math.cos(-Math.PI / 6), y: tr * Math.sin(-Math.PI / 6) }];
+    } else if (type === 'Irregular') {
+        skeleton = [{ x: 0, y: r * 1.5 }, { x: -r * 0.8, y: -r * 0.2 }, { x: 0, y: -r * 0.5 }, { x: r * 1.2, y: 0 }];
+    } else if (type === 'Letter' && fontPts) {
+        skeleton = fontPts;
+    } else {
+        return { outer: new Array(radialRes).fill({ x: 0, y: 0 }), inner: new Array(radialRes).fill({ x: 0, y: 0 }) };
+    }
+
+    if (skeleton.length > radialRes) {
+        skeleton = visvalingamWhyatt(skeleton, radialRes);
+    }
+
+    skeleton = _reorderToTop(skeleton);
+    const outerSkeleton = skeleton.map((_, i) => getMiterOffset(skeleton, i, -wallThickness / 2));
+    const innerSkeleton = skeleton.map((_, i) => getMiterOffset(skeleton, i, wallThickness / 2));
+
+    if (skeleton.length < radialRes) {
+        return {
+            outer: subdivideSkeleton(outerSkeleton, radialRes),
+            inner: subdivideSkeleton(innerSkeleton, radialRes)
+        };
+    }
+
+    return { outer: outerSkeleton, inner: innerSkeleton };
+}
 
 /**
  * Build one hollow tube along a random Catmull-Rom path.
@@ -209,33 +267,21 @@ function createHollowMorphedLine(params, fontShapeData, lod, lengthMultiplier = 
     const actualSegs = Math.max(1, Math.floor(segments * lengthMultiplier));
     const radialRes = lod === 'low' ? 6 : (lod === 'mid' ? 32 : 64);
 
-    // --- Shape config ---
     const isTextMode = params.textMode && params.textContent;
     const effectiveShapeCount = isTextMode ? params.textContent.length : params.shapeCount;
 
-    const branchShapes = [];
-    const shapeScales = [];
+    const precalcShapes = []; // Array of { outer: [{x,y}...], inner: [{x,y}...] }
     const shapeRots = [];
-    const fontPtsPerSlot = []; // [{x,y}] arrays ready to hand to getPointOnPrimitive
 
     for (let i = 0; i < effectiveShapeCount; i++) {
         const scale = 0.6 + getShapeRand() * 0.8;
-        shapeScales.push(scale);
+        const type = isTextMode ? 'Letter' : PRIMITIVES[Math.floor(getShapeRand() * PRIMITIVES.length)];
+        if (isTextMode) getShapeRand(); // sync RNG
         shapeRots.push(getShapeRand() * (Math.PI / 2));
 
-        if (isTextMode && fontShapeData) {
-            branchShapes.push('Letter');
-            // Call so the rotation and scale is the same as when textMode is false
-            getShapeRand();
-            // fontShapeData[i] are already world-scaled {x,y} objects (built main-thread)
-            fontPtsPerSlot.push(fontShapeData[i] || []);
-        } else {
-            branchShapes.push(PRIMITIVES[Math.floor(getShapeRand() * PRIMITIVES.length)]);
-            fontPtsPerSlot.push(null);
-        }
+        precalcShapes.push(getShapeVertices(type, params.shapeRadius * scale, params.wallThickness, radialRes, fontShapeData ? fontShapeData[i] : null));
     }
 
-    // --- Pre-allocate typed arrays ---
     const rowSize = radialRes * 2;                          // outer + inner vertices per ring
     const numFloats = (actualSegs + 1) * rowSize * 3;
     const numIndices = actualSegs * radialRes * 12            // side walls (outer + inner)
@@ -261,19 +307,14 @@ function createHollowMorphedLine(params, fontShapeData, lod, lengthMultiplier = 
         for (let j = 0; j < radialRes; j++) {
             const angle = (j / radialRes) * Math.PI * 2;
 
-            // Outer skin sample
-            const p1O = getPointOnPrimitive(branchShapes[idx1], angle, params.shapeRadius * shapeScales[idx1], 0, fontPtsPerSlot[idx1]);
-            const p2O = getPointOnPrimitive(branchShapes[idx2], angle, params.shapeRadius * shapeScales[idx2], 0, fontPtsPerSlot[idx2]);
-
-            // Inner wall sample (offset = wallThickness)
-            const p1I = getPointOnPrimitive(branchShapes[idx1], angle, params.shapeRadius * shapeScales[idx1], params.wallThickness, fontPtsPerSlot[idx1]);
-            const p2I = getPointOnPrimitive(branchShapes[idx2], angle, params.shapeRadius * shapeScales[idx2], params.wallThickness, fontPtsPerSlot[idx2]);
+            const s1 = precalcShapes[idx1];
+            const s2 = precalcShapes[idx2];
 
             // Lerp then rotate
-            const ox = p1O.x + (p2O.x - p1O.x) * lt;
-            const oy = p1O.y + (p2O.y - p1O.y) * lt;
-            const ix = p1I.x + (p2I.x - p1I.x) * lt;
-            const iy = p1I.y + (p2I.y - p1I.y) * lt;
+            const ox = s1.outer[j].x + (s2.outer[j].x - s1.outer[j].x) * lt;
+            const oy = s1.outer[j].y + (s2.outer[j].y - s1.outer[j].y) * lt;
+            const ix = s1.inner[j].x + (s2.inner[j].x - s1.inner[j].x) * lt;
+            const iy = s1.inner[j].y + (s2.inner[j].y - s1.inner[j].y) * lt;
 
             const fox = ox * cosR - oy * sinR;
             const foy = ox * sinR + oy * cosR;
