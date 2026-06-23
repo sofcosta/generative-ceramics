@@ -63,8 +63,10 @@ a img {
     border-radius: 20px;
     cursor: grab;
     display: flex;
-    flex-direction: column;
+    /*flex-direction: column;*/
     justify-content: space-between;
+    align-items: end;
+    padding: 8px;
 }
 
 .item-selected {
@@ -153,7 +155,7 @@ button {
     display: flex;
     justify-content: flex-end;
     gap: 8px;
-    padding: 12px;
+    /*padding: 12px;*/
     z-index: 3;
 }
 
@@ -162,7 +164,7 @@ button {
     text-decoration: none;
     font-family: 'Inter', sans-serif;
     font-size: 0px;
-    padding: 5px 5px;
+    /*padding: 5px 5px;*/
     border-radius: 5px;
     transition: all 0.2s ease;
 }
