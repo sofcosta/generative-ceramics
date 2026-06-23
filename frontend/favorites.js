@@ -28,3 +28,201 @@ export function deleteFavorite(id) {
     favorites = favorites.filter(item => item.id !== id);
     localStorage.setItem(FAVORITES_KEY, JSON.stringify(favorites));
 }
+
+///--------------------------------------------///
+
+import * as THREE from "https://esm.sh/three";
+import { OrbitControls } from "https://esm.sh/three/examples/jsm/controls/OrbitControls.js";
+import { FontLoader } from "https://esm.sh/three/examples/jsm/loaders/FontLoader.js";
+
+// Main structural imports
+import { getFavorites, deleteFavorite } from "./favorites.js";
+import { buildFontShapeData, setFont, createMeshFromData, updateMeshFromData } from "./engine.js";
+import { WorkerPool } from "./worker-pool.js";
+
+const canvas = document.getElementById('canvas');
+const content = document.getElementById('content');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+renderer.setPixelRatio(window.devicePixelRatio);
+
+const scenes = [];
+const workerPool = new WorkerPool();
+
+// Font Loader Initialization
+const loader = new FontLoader();
+const FONT_URL = 'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/fonts/helvetiker_bold.typeface.json';
+
+loader.load(FONT_URL, (font) => {
+    setFont(font);
+    buildFavoritesGallery();
+});
+
+async function buildFavoritesGallery() {
+    // Clean up old scene loops
+    scenes.forEach(s => {
+        if (s.mesh) s.mesh.geometry.dispose();
+        s.controls.dispose();
+    });
+    scenes.length = 0;
+    content.innerHTML = '';
+
+    const items = getFavorites();
+
+    if (items.length === 0) {
+        content.innerHTML = `<div id="empty-message">No favorites found! Save designs from your generator workspace.</div>`;
+        return;
+    }
+
+    // Generate low-poly views asynchronously in modern FIFO batches
+    const lowPolyTasks = items.map(item => {
+        const fontShapeData = buildFontShapeData(item.data);
+        return workerPool.generateSingle(item.data, fontShapeData, 'low', item.id);
+    });
+
+    for (let i = 0; i < items.length; i++) {
+        const favoriteItem = items[i];
+        const configParams = favoriteItem.data;
+
+        // Create DOM Viewport Shell
+        const element = document.createElement('div');
+        element.className = 'item';
+
+        element.innerHTML = `
+                    <div class="item-label">
+                        Date: ${favoriteItem.date || 'N/A'}<br>
+                    </div>
+                    <div class="item-actions">
+                        <a class="open-btn"><img src="materials/edit.png"></a>
+                        <a class="delete-btn"><img src="materials/bin.png"></a>
+                    </div>
+                `;
+        content.appendChild(element);
+
+        // Button Handlers
+        element.querySelector('.open-btn').onclick = () => {
+            localStorage.setItem('selectedMandala', JSON.stringify(configParams));
+            window.location.href = 'index.html';
+        };
+
+        element.querySelector('.delete-btn').onclick = () => {
+            if (confirm("Remove this design from your favorites?")) {
+                deleteFavorite(favoriteItem.id);
+                buildFavoritesGallery(); // Re-render grid instantly
+            }
+        };
+
+        // Instantiate Local 3D Subscenes
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 1000);
+        camera.up.set(0, 0, 1);
+        camera.position.set(0, -50, 15);
+
+        const controls = new OrbitControls(camera, element);
+        controls.target.set(0, 0, 10);
+        controls.enablePan = false;
+        controls.enableZoom = true; // Allow zooming into details here
+
+        // Scene Lighting
+        const light = new THREE.DirectionalLight(0xffffff, 1.2);
+        light.position.set(20, -30, 40);
+        scene.add(light);
+        scene.add(new THREE.AmbientLight(0xffffff, 0.3));
+
+        const sceneData = {
+            element,
+            scene,
+            camera,
+            controls,
+            mesh: null,
+            fitDistance: 0,
+            target: new THREE.Vector3(),
+            geometryOffset: new THREE.Vector3()
+        };
+        scenes.push(sceneData);
+
+        // Handle Geometry Task Chains
+        lowPolyTasks[i].then(lowData => {
+            const mesh = createMeshFromData(lowData.geometryData);
+
+            // Center and adjust cameras matching your precise layout engine logic
+            const box = new THREE.Box3().setFromObject(mesh);
+            const center = new THREE.Vector3();
+            box.getCenter(center);
+
+            const offset = center.clone().negate();
+            mesh.geometry.translate(offset.x, offset.y, offset.z);
+            mesh.position.copy(center);
+
+            sceneData.geometryOffset.copy(offset);
+            sceneData.target.copy(center);
+
+            const size = box.getSize(new THREE.Vector3());
+            const maxDim = Math.max(size.x, size.y, size.z);
+            const fov = camera.fov * (Math.PI / 180);
+            let cameraZ = Math.abs(maxDim / 2 / Math.tan(fov / 2)) * 1.5;
+
+            sceneData.fitDistance = cameraZ;
+            camera.position.set(center.x, center.y - cameraZ, center.z);
+            controls.target.copy(center);
+            controls.update();
+
+            scene.add(mesh);
+            sceneData.mesh = mesh;
+
+            // Upgrade to structural Mid-Poly geometry fluidly
+            const fontShapeData = buildFontShapeData(configParams);
+            return workerPool.generateSingle(configParams, fontShapeData, 'mid', favoriteItem.id);
+        }).then(midData => {
+            if (sceneData.mesh) {
+                updateMeshFromData(sceneData.mesh, midData.geometryData);
+                const off = sceneData.geometryOffset;
+                sceneData.mesh.geometry.translate(off.x, off.y, off.z);
+            }
+        }).catch(err => console.error("Error drawing custom favorite preview:", err));
+
+        if (i % 8 === 0) await new Promise(res => requestAnimationFrame(res));
+    }
+}
+
+// Global Render Engine Loop (Uses Scissor Test)
+function animate() {
+    const width = canvas.clientWidth;
+    const height = canvas.clientHeight;
+    if (canvas.width !== width || canvas.height !== height) {
+        renderer.setSize(width, height, false);
+    }
+
+    renderer.setClearColor(0x111111, 1);
+    renderer.setScissorTest(false);
+    renderer.clear();
+    renderer.setScissorTest(true);
+
+    scenes.forEach(data => {
+        const rect = data.element.getBoundingClientRect();
+
+        // Visibility clipping guard
+        if (rect.bottom < 0 || rect.top > renderer.domElement.clientHeight ||
+            rect.right < 0 || rect.left > renderer.domElement.clientWidth) {
+            return;
+        }
+
+        const viewWidth = rect.right - rect.left;
+        const viewHeight = rect.bottom - rect.top;
+        const left = rect.left;
+        const bottom = renderer.domElement.clientHeight - rect.bottom;
+
+        renderer.setViewport(left, bottom, viewWidth, viewHeight);
+        renderer.setScissor(left, bottom, viewWidth, viewHeight);
+
+        data.controls.update();
+
+        if (data.mesh) {
+            data.mesh.rotation.z += 0.003; // Gentle idling spin
+            renderer.render(data.scene, data.camera);
+        }
+    });
+
+    requestAnimationFrame(animate);
+}
+
+animate();
