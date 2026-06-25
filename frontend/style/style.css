@@ -146,10 +146,6 @@ button {
     border-radius: 5px;
 }
 
-.is-favorite {
-    background-color: red;
-}
-
 /* FAVORITES CONTROLS */
 .item-actions {
     display: flex;
@@ -157,6 +153,20 @@ button {
     gap: 8px;
     /*padding: 12px;*/
     z-index: 3;
+}
+
+.item-actions a {
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+
+.item:hover .item-actions a,
+.item-actions a.is-favorite {
+    opacity: 1;
+}
+
+.is-favorite {
+    background-color: red;
 }
 
 .item-actions a {
